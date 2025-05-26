@@ -149,7 +149,14 @@ const initialIssues: Issue[] = [
 ]
 
 export default function MaintenancePage() {
-  const [issues, setIssues] = useState<Issue[]>(initialIssues)
+  // Load issues from localStorage on component mount, fallback to initialIssues
+  const [issues, setIssues] = useState<Issue[]>(() => {
+    if (typeof window !== 'undefined') {
+      const savedIssues = localStorage.getItem('maintenanceIssues')
+      return savedIssues ? JSON.parse(savedIssues) : initialIssues
+    }
+    return initialIssues
+  })
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
@@ -224,7 +231,12 @@ export default function MaintenancePage() {
         assignedTo: null,
         updatedAt: null,
       }
-      setIssues([newIssueObj, ...issues])
+      const updatedIssues = [newIssueObj, ...issues]
+      setIssues(updatedIssues)
+      
+      // Save to localStorage
+      localStorage.setItem('maintenanceIssues', JSON.stringify(updatedIssues))
+      
       setIsAddDialogOpen(false)
       // Reset form
       setNewIssue({
@@ -246,18 +258,21 @@ export default function MaintenancePage() {
 
   // Handle updating issue status
   const handleUpdateStatus = (issueId: number, newStatus: string) => {
-    setIssues(
-      issues.map((issue) =>
-        issue.id === issueId
-          ? {
-              ...issue,
-              status: newStatus,
-              updatedAt: new Date().toISOString(),
-              assignedTo: newStatus === "in-progress" ? "Maintenance Team" : issue.assignedTo,
-            }
-          : issue,
-      ),
+    const updatedIssues = issues.map((issue) =>
+      issue.id === issueId
+        ? {
+            ...issue,
+            status: newStatus,
+            updatedAt: new Date().toISOString(),
+            assignedTo: newStatus === "in-progress" ? "Maintenance Team" : issue.assignedTo,
+          }
+        : issue,
     )
+    setIssues(updatedIssues)
+    
+    // Save to localStorage
+    localStorage.setItem('maintenanceIssues', JSON.stringify(updatedIssues))
+    
     setIsViewDialogOpen(false)
   }
 
