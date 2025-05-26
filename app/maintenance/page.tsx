@@ -58,8 +58,24 @@ const statusOptions = [
   { id: "resolved", name: "Resolved", color: "bg-green-100 text-green-800" },
 ]
 
+// Issue interface for type safety
+interface Issue {
+  id: number
+  lab: string
+  title: string
+  description: string
+  category: string
+  severity: string
+  status: string
+  reportedBy: string
+  reportedAt: string
+  assignedTo: string | null
+  updatedAt: string | null
+  machineId: string
+}
+
 // Mock data for maintenance issues
-const initialIssues = [
+const initialIssues: Issue[] = [
   {
     id: 1,
     lab: "004",
@@ -133,10 +149,10 @@ const initialIssues = [
 ]
 
 export default function MaintenancePage() {
-  const [issues, setIssues] = useState(initialIssues)
+  const [issues, setIssues] = useState<Issue[]>(initialIssues)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [selectedIssue, setSelectedIssue] = useState<null | any>(null)
+  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
   const [statusFilter, setStatusFilter] = useState("all")
   const [labFilter, setLabFilter] = useState("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
@@ -152,6 +168,11 @@ export default function MaintenancePage() {
     severity: "medium",
     machineId: "",
   })
+
+  // Navigate back to dashboard
+  const handleBackToDashboard = () => {
+    router.push("/dashboard") // Change this to your actual dashboard route
+  }
 
   // Filter issues based on selected filters and search query
   const filteredIssues = issues.filter((issue) => {
@@ -194,7 +215,7 @@ export default function MaintenancePage() {
   // Handle issue creation
   const handleCreateIssue = () => {
     if (newIssue.lab && newIssue.title && newIssue.description && newIssue.category && newIssue.severity) {
-      const newIssueObj = {
+      const newIssueObj: Issue = {
         id: issues.length + 1,
         ...newIssue,
         status: "reported",
@@ -218,7 +239,7 @@ export default function MaintenancePage() {
   }
 
   // Handle viewing issue details
-  const handleViewIssue = (issue: any) => {
+  const handleViewIssue = (issue: Issue) => {
     setSelectedIssue(issue)
     setIsViewDialogOpen(true)
   }
@@ -253,7 +274,7 @@ export default function MaintenancePage() {
   }
 
   // Format date for display
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
     if (!dateString) return "N/A"
     const date = new Date(dateString)
     return date.toLocaleString()
@@ -264,10 +285,13 @@ export default function MaintenancePage() {
       <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleBackToDashboard}
+              className="text-white hover:bg-white/10"
+            >
+              <ArrowLeft className="h-5 w-5" />
             </Button>
             <h1 className="text-xl font-bold">Maintenance Issues</h1>
           </div>
@@ -359,7 +383,7 @@ export default function MaintenancePage() {
                             {level.name}
                           </SelectItem>
                         ))}
-                      </SelectContent>
+                      </SelectContent>  
                     </Select>
                   </div>
                 </div>
