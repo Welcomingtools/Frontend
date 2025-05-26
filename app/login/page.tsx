@@ -29,7 +29,7 @@ export default function LoginPage() {
       if (username === "demo" && password === "password") {
         // Successful login
         setTimeout(() => {
-          router.push("/labs")
+          router.push("/dashboard")
         }, 1000)
       } else {
         setError("Invalid username or password")
