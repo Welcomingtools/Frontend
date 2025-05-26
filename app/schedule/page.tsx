@@ -111,6 +111,42 @@ const labsData = [
   { id: "007", name: "Lab 007", capacity: 72 },
 ]
 
+// Session storage utilities
+const SESSIONS_STORAGE_KEY = 'lab_sessions'
+
+const loadSessionsFromStorage = () => {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(SESSIONS_STORAGE_KEY)
+      console.log('Loading from storage:', stored) // Debug log
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        console.log('Parsed sessions:', parsed) // Debug log
+        return parsed
+      } else {
+        console.log('No stored sessions, using initial data') // Debug log
+        return initialSessions
+      }
+    } catch (error) {
+      console.error('Error loading sessions from storage:', error)
+      return initialSessions
+    }
+  }
+  return initialSessions
+}
+
+const saveSessionsToStorage = (sessions: any[]) => {
+  if (typeof window !== 'undefined') {
+    try {
+      console.log('Saving sessions to storage:', sessions) // Debug log
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions))
+      console.log('Sessions saved successfully') // Debug log
+    } catch (error) {
+      console.error('Error saving sessions to storage:', error)
+    }
+  }
+}
+
 // Form validation types
 interface ValidationErrors {
   lab?: string
@@ -121,13 +157,36 @@ interface ValidationErrors {
 }
 
 export default function SchedulePage() {
-  const [sessions, setSessions] = useState(initialSessions)
+  const [sessions, setSessions] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
   const [selectedView, setSelectedView] = useState("day")
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
+
+  // Load sessions from localStorage on component mount
+  useEffect(() => {
+    console.log('Component mounted, loading sessions...') // Debug log
+    const loadedSessions = loadSessionsFromStorage()
+    console.log('Loaded sessions:', loadedSessions) // Debug log
+    setSessions(loadedSessions)
+    setIsLoading(false)
+  }, [])
+
+  // Save sessions to localStorage whenever sessions change
+  useEffect(() => {
+    if (!isLoading && sessions.length > 0) { // Only save if we have sessions and finished loading
+      console.log('Sessions changed, saving:', sessions) // Debug log
+      saveSessionsToStorage(sessions)
+    }
+  }, [sessions, isLoading])
+
+  // Debug: Log current sessions state
+  useEffect(() => {
+    console.log('Current sessions state:', sessions)
+  }, [sessions])
 
   // New session form state
   const [newSession, setNewSession] = useState({
@@ -282,7 +341,7 @@ export default function SchedulePage() {
       }
 
       const newSessionObj = {
-        id: sessions.length + 1,
+        id: Math.max(...sessions.map(s => s.id), 0) + 1, // Better ID generation
         ...newSession,
         purpose: newSession.purpose.trim(),
         startTime: slot.startTime,
@@ -290,7 +349,11 @@ export default function SchedulePage() {
         createdBy: "You",
       }
 
-      setSessions([...sessions, newSessionObj])
+      console.log('Creating new session:', newSessionObj) // Debug log
+      const updatedSessions = [...sessions, newSessionObj]
+      console.log('Updated sessions array:', updatedSessions) // Debug log
+      
+      setSessions(updatedSessions)
       setIsAddDialogOpen(false)
       
       // Reset form
@@ -311,9 +374,10 @@ export default function SchedulePage() {
       setValidationErrors({})
       
       // Optional: Show success message
-      // You could add a toast notification here
+      console.log('Session created successfully!')
       
     } catch (error) {
+      console.error('Error creating session:', error)
       setValidationErrors({ general: "Failed to create session. Please try again." })
     } finally {
       setIsSubmitting(false)
@@ -601,7 +665,12 @@ export default function SchedulePage() {
               </Button>
             </div>
 
-            {filteredSessions.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f4d92] mx-auto mb-2"></div>
+                <p className="text-sm text-muted-foreground">Loading sessions...</p>
+              </div>
+            ) : filteredSessions.length === 0 ? (
               <div className="text-center py-8 border rounded-lg bg-muted/50">
                 <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                 <h3 className="text-lg font-medium">No Sessions Scheduled</h3>
