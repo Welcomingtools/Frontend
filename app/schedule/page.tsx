@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Calendar, Clock, Plus, AlertCircle } from "lucide-react"
+import { ArrowLeft, Calendar, Clock, Plus, AlertCircle, CheckCircle } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,14 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Define preset lecture slots
+// Define predefined purpose options
+const PURPOSE_OPTIONS = [
+  { value: "exam", label: "Exam" },
+  { value: "lab", label: "Lab" },
+  { value: "tutorial", label: "Tutorial" },
+  { value: "test", label: "Test" },
+  { value: "other", label: "Other" },
+]
 const LECTURE_SLOTS = [
   { id: 1, startTime: "08:00", endTime: "09:45", label: "Morning Session (08:00 - 09:45)" },
   { id: 2, startTime: "10:15", endTime: "12:00", label: "Mid-Morning Session (10:15 - 12:00)" },
@@ -37,7 +44,7 @@ const initialSessions = [
   {
     id: 1,
     lab: "004",
-    date: "2023-05-07",
+    date: "2025-05-27", // Updated to current date for testing
     startTime: "08:00",
     endTime: "09:45",
     slotId: 1,
@@ -52,8 +59,8 @@ const initialSessions = [
   },
   {
     id: 2,
-    lab: "002",
-    date: "2023-05-07",
+    lab: "108",
+    date: "2025-05-27", // Updated to current date for testing
     startTime: "10:15",
     endTime: "12:00",
     slotId: 2,
@@ -68,8 +75,8 @@ const initialSessions = [
   },
   {
     id: 3,
-    lab: "001",
-    date: "2023-05-07",
+    lab: "005",
+    date: "2025-05-27", // Updated to current date for testing
     startTime: "14:15",
     endTime: "16:00",
     slotId: 4,
@@ -84,8 +91,8 @@ const initialSessions = [
   },
   {
     id: 4,
-    lab: "003",
-    date: "2023-05-08",
+    lab: "109",
+    date: "2025-05-28",
     startTime: "08:00",
     endTime: "09:45",
     slotId: 1,
@@ -100,51 +107,30 @@ const initialSessions = [
   },
 ]
 
-// Mock data for labs
+// Mock data for labs with updated structure
 const labsData = [
-  { id: "001", name: "Lab 001", capacity: 72 },
-  { id: "002", name: "Lab 002", capacity: 72 },
-  { id: "003", name: "Lab 003", capacity: 72 },
-  { id: "004", name: "Lab 004", capacity: 72 },
-  { id: "005", name: "Lab 005", capacity: 72 },
-  { id: "006", name: "Lab 006", capacity: 72 },
-  { id: "007", name: "Lab 007", capacity: 72 },
+  { id: "004", name: "Lab 004", capacity: 100, rows: 10 },
+  { id: "005", name: "Lab 005", capacity: 100, rows: 10 },
+  { id: "006", name: "Lab 006", capacity: 100, rows: 10 },
+  { id: "108", name: "Lab 108", capacity: 50, rows: 5 },
+  { id: "109", name: "Lab 109", capacity: 50, rows: 5 },
+  { id: "110", name: "Lab 110", capacity: 50, rows: 5 },
+  { id: "111", name: "Lab 111", capacity: 50, rows: 5 },
 ]
 
-// Session storage utilities
+// Session storage utilities - NOTE: localStorage not supported in Claude artifacts
 const SESSIONS_STORAGE_KEY = 'lab_sessions'
 
 const loadSessionsFromStorage = () => {
-  if (typeof window !== 'undefined') {
-    try {
-      const stored = localStorage.getItem(SESSIONS_STORAGE_KEY)
-      console.log('Loading from storage:', stored) // Debug log
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        console.log('Parsed sessions:', parsed) // Debug log
-        return parsed
-      } else {
-        console.log('No stored sessions, using initial data') // Debug log
-        return initialSessions
-      }
-    } catch (error) {
-      console.error('Error loading sessions from storage:', error)
-      return initialSessions
-    }
-  }
+  // In a real app, this would use localStorage
+  // For Claude artifacts, we'll just return initial data
   return initialSessions
 }
 
 const saveSessionsToStorage = (sessions: any[]) => {
-  if (typeof window !== 'undefined') {
-    try {
-      console.log('Saving sessions to storage:', sessions) // Debug log
-      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions))
-      console.log('Sessions saved successfully') // Debug log
-    } catch (error) {
-      console.error('Error saving sessions to storage:', error)
-    }
-  }
+  // In a real app, this would save to localStorage
+  // For Claude artifacts, this is a no-op
+  console.log('Would save sessions:', sessions)
 }
 
 // Form validation types
@@ -156,6 +142,58 @@ interface ValidationErrors {
   general?: string
 }
 
+// Check-in validation helper functions
+const getSessionDateTime = (date: string, time: string) => {
+  const [hours, minutes] = time.split(':').map(Number)
+  const sessionDate = new Date(date)
+  sessionDate.setHours(hours, minutes, 0, 0)
+  return sessionDate
+}
+
+const canCheckIn = (sessionDate: string, startTime: string, endTime: string) => {
+  const now = new Date()
+  const sessionStart = getSessionDateTime(sessionDate, startTime)
+  const sessionEnd = getSessionDateTime(sessionDate, endTime)
+  
+  // Allow check-in 30 minutes before session starts
+  const checkInStart = new Date(sessionStart.getTime() - 30 * 60 * 1000)
+  
+  // Can check in from 30 minutes before until session ends
+  return now >= checkInStart && now <= sessionEnd
+}
+
+const getCheckInStatus = (sessionDate: string, startTime: string, endTime: string) => {
+  const now = new Date()
+  const sessionStart = getSessionDateTime(sessionDate, startTime)
+  const sessionEnd = getSessionDateTime(sessionDate, endTime)
+  const checkInStart = new Date(sessionStart.getTime() - 30 * 60 * 1000)
+  
+  if (now < checkInStart) {
+    const timeDiff = checkInStart.getTime() - now.getTime()
+    const hoursLeft = Math.floor(timeDiff / (1000 * 60 * 60))
+    const minutesLeft = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60))
+    
+    if (hoursLeft > 0) {
+      return `Check-in available in ${hoursLeft}h ${minutesLeft}m`
+    } else {
+      return `Check-in available in ${minutesLeft}m`
+    }
+  } else if (now > sessionEnd) {
+    return "Session ended"
+  } else if (now >= sessionStart) {
+    return "Session in progress"
+  } else {
+    return "Check-in available"
+  }
+}
+
+// Time slot validation helper function
+const hasTimeSlotPassed = (date: string, startTime: string) => {
+  const now = new Date()
+  const slotDateTime = getSessionDateTime(date, startTime)
+  return slotDateTime < now
+}
+
 export default function SchedulePage() {
   const [sessions, setSessions] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -164,38 +202,45 @@ export default function SchedulePage() {
   const [selectedView, setSelectedView] = useState("day")
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [currentTime, setCurrentTime] = useState(new Date())
   const router = useRouter()
 
-  // Load sessions from localStorage on component mount
+  // Update current time every minute for real-time check-in validation
   useEffect(() => {
-    console.log('Component mounted, loading sessions...') // Debug log
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 60000) // Update every minute
+
+    return () => clearInterval(timer)
+  }, [])
+
+  // Load sessions on component mount
+  useEffect(() => {
+    console.log('Component mounted, loading sessions...')
     const loadedSessions = loadSessionsFromStorage()
-    console.log('Loaded sessions:', loadedSessions) // Debug log
+    console.log('Loaded sessions:', loadedSessions)
     setSessions(loadedSessions)
     setIsLoading(false)
   }, [])
 
-  // Save sessions to localStorage whenever sessions change
+  // Save sessions whenever sessions change
   useEffect(() => {
-    if (!isLoading && sessions.length > 0) { // Only save if we have sessions and finished loading
-      console.log('Sessions changed, saving:', sessions) // Debug log
+    if (!isLoading && sessions.length > 0) {
+      console.log('Sessions changed, saving:', sessions)
       saveSessionsToStorage(sessions)
     }
   }, [sessions, isLoading])
 
-  // Debug: Log current sessions state
-  useEffect(() => {
-    console.log('Current sessions state:', sessions)
-  }, [sessions])
-
-  // New session form state
+  // New session form state - FIXED: Changed slotId from 0 to null
   const [newSession, setNewSession] = useState({
     lab: "",
     date: selectedDate,
-    slotId: 0,
+    slotId: null as number | null,
     startTime: "",
     endTime: "",
-    purpose: "",
+    purposeType: "", // New field for purpose dropdown
+    purpose: "", // This will be the actual purpose text
+    customPurpose: "", // For when "Other" is selected
     configurations: {
       windows: false,
       internet: true,
@@ -242,19 +287,31 @@ export default function SchedulePage() {
       }
     }
 
-    if (!newSession.slotId || newSession.slotId === 0) {
+    if (!newSession.slotId) {
       errors.slotId = "Please select a time slot"
+    } else {
+      // Check if the selected time slot has passed (only for today's date)
+      const slot = LECTURE_SLOTS.find(s => s.id === newSession.slotId)
+      const today = new Date().toISOString().split("T")[0]
+      
+      if (slot && newSession.date === today && hasTimeSlotPassed(newSession.date, slot.startTime)) {
+        errors.slotId = "The selected time slot has already passed. Please choose a future time slot."
+      }
     }
 
-    if (!newSession.purpose.trim()) {
-      errors.purpose = "Please provide a purpose for the session"
-    } else if (newSession.purpose.trim().length < 5) {
-      errors.purpose = "Purpose must be at least 5 characters long"
-    } else if (newSession.purpose.trim().length > 200) {
-      errors.purpose = "Purpose must be less than 200 characters"
+    if (!newSession.purposeType) {
+      errors.purpose = "Please select a purpose type"
+    } else if (newSession.purposeType === "other") {
+      if (!newSession.customPurpose.trim()) {
+        errors.purpose = "Please provide a custom purpose"
+      } else if (newSession.customPurpose.trim().length < 5) {
+        errors.purpose = "Purpose must be at least 5 characters long"
+      } else if (newSession.customPurpose.trim().length > 200) {
+        errors.purpose = "Purpose must be less than 200 characters"
+      }
     }
 
-    // Check if time slot is available
+    // Check if time slot is available for the selected lab
     if (newSession.lab && newSession.date && newSession.slotId) {
       if (!isTimeSlotAvailable(newSession.lab, newSession.date, newSession.slotId)) {
         errors.general = "This time slot is already booked for the selected lab"
@@ -271,7 +328,7 @@ export default function SchedulePage() {
   }
 
   // Get available labs for a specific time slot
-  const getAvailableLabs = (date: string, slotId: number) => {
+  const getAvailableLabs = (date: string, slotId: number | null) => {
     if (!slotId) return labsData
     return labsData.filter((lab) => isTimeSlotAvailable(lab.id, date, slotId))
   }
@@ -314,6 +371,24 @@ export default function SchedulePage() {
           lab: "",
         })
       }
+    } else if (field === "purposeType") {
+      // Handle purpose type selection
+      const purposeType = value as string
+      const selectedOption = PURPOSE_OPTIONS.find(option => option.value === purposeType)
+      
+      setNewSession({
+        ...newSession,
+        purposeType,
+        purpose: purposeType === "other" ? "" : (selectedOption?.label || ""),
+        customPurpose: purposeType === "other" ? newSession.customPurpose : "",
+      })
+    } else if (field === "customPurpose") {
+      // Handle custom purpose input
+      setNewSession({
+        ...newSession,
+        customPurpose: value as string,
+        purpose: value as string, // Set the actual purpose to the custom value
+      })
     } else {
       setNewSession({
         ...newSession,
@@ -341,29 +416,31 @@ export default function SchedulePage() {
       }
 
       const newSessionObj = {
-        id: Math.max(...sessions.map(s => s.id), 0) + 1, // Better ID generation
+        id: Math.max(...sessions.map(s => s.id), 0) + 1,
         ...newSession,
-        purpose: newSession.purpose.trim(),
+        purpose: newSession.purposeType === "other" ? newSession.customPurpose.trim() : newSession.purpose,
         startTime: slot.startTime,
         endTime: slot.endTime,
         createdBy: "You",
       }
 
-      console.log('Creating new session:', newSessionObj) // Debug log
+      console.log('Creating new session:', newSessionObj)
       const updatedSessions = [...sessions, newSessionObj]
-      console.log('Updated sessions array:', updatedSessions) // Debug log
+      console.log('Updated sessions array:', updatedSessions)
       
       setSessions(updatedSessions)
       setIsAddDialogOpen(false)
       
-      // Reset form
+      // Reset form - FIXED: Reset slotId to null instead of 0
       setNewSession({
         lab: "",
         date: selectedDate,
-        slotId: 0,
+        slotId: null,
         startTime: "",
         endTime: "",
+        purposeType: "",
         purpose: "",
+        customPurpose: "",
         configurations: {
           windows: false,
           internet: true,
@@ -373,7 +450,6 @@ export default function SchedulePage() {
       })
       setValidationErrors({})
       
-      // Optional: Show success message
       console.log('Session created successfully!')
       
     } catch (error) {
@@ -386,14 +462,18 @@ export default function SchedulePage() {
 
   // Navigate back to dashboard
   const handleBackToDashboard = () => {
-    router.push("/dashboard") // Change this to your actual dashboard route
+    router.push("/dashboard")
   }
 
-  // Navigate to session detail
+  // Navigate to session detail with check-in validation
   const navigateToSession = (sessionId: number) => {
     const session = sessions.find((s) => s.id === sessionId)
     if (session) {
-      router.push(`/labs/${session.lab}`)
+      if (canCheckIn(session.date, session.startTime, session.endTime)) {
+        router.push(`/labs/${session.lab}`)
+      } else {
+        console.log('Check-in not available at this time')
+      }
     }
   }
 
@@ -486,11 +566,20 @@ export default function SchedulePage() {
                         <SelectValue placeholder="Select time slot" />
                       </SelectTrigger>
                       <SelectContent>
-                        {LECTURE_SLOTS.map((slot) => (
-                          <SelectItem key={slot.id} value={slot.id.toString()}>
-                            {slot.label}
-                          </SelectItem>
-                        ))}
+                        {LECTURE_SLOTS.map((slot) => {
+                          const today = new Date().toISOString().split("T")[0]
+                          const isSlotPassed = newSession.date === today && hasTimeSlotPassed(newSession.date, slot.startTime)
+                          
+                          return (
+                            <SelectItem 
+                              key={slot.id} 
+                              value={slot.id.toString()}
+                              className={isSlotPassed ? "text-gray-400" : ""}
+                            >
+                              {slot.label} {isSlotPassed && "(Passed)"}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                     {validationErrors.slotId && (
@@ -528,22 +617,48 @@ export default function SchedulePage() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="purpose" className="text-sm font-medium">
-                    Purpose <span className="text-red-500">*</span>
+                  <Label htmlFor="purposeType" className="text-sm font-medium">
+                    Purpose Type <span className="text-red-500">*</span>
                   </Label>
-                  <Textarea
-                    id="purpose"
-                    placeholder="Describe the purpose of this session"
-                    value={newSession.purpose}
-                    onChange={(e) => handleFormChange("purpose", e.target.value)}
-                    maxLength={200}
-                    className={validationErrors.purpose ? "border-red-500" : ""}
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>{validationErrors.purpose && <span className="text-red-500">{validationErrors.purpose}</span>}</span>
-                    <span>{newSession.purpose.length}/200</span>
-                  </div>
+                  <Select
+                    value={newSession.purposeType}
+                    onValueChange={(value) => handleFormChange("purposeType", value)}
+                  >
+                    <SelectTrigger className={validationErrors.purpose ? "border-red-500" : ""}>
+                      <SelectValue placeholder="Select purpose type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PURPOSE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {validationErrors.purpose && (
+                    <p className="text-sm text-red-500">{validationErrors.purpose}</p>
+                  )}
                 </div>
+
+                {newSession.purposeType === "other" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="customPurpose" className="text-sm font-medium">
+                      Custom Purpose <span className="text-red-500">*</span>
+                    </Label>
+                    <Textarea
+                      id="customPurpose"
+                      placeholder="Describe the purpose of this session"
+                      value={newSession.customPurpose}
+                      onChange={(e) => handleFormChange("customPurpose", e.target.value)}
+                      maxLength={200}
+                      className={validationErrors.purpose ? "border-red-500" : ""}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span></span>
+                      <span>{newSession.customPurpose.length}/200</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Lab Configuration</Label>
@@ -637,26 +752,6 @@ export default function SchedulePage() {
                 size="sm"
                 onClick={() => {
                   const date = new Date(selectedDate)
-                  date.setDate(date.getDate() - 1)
-                  setSelectedDate(date.toISOString().split("T")[0])
-                }}
-              >
-                Previous
-              </Button>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-muted-foreground" />
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-[150px]"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const date = new Date(selectedDate)
                   date.setDate(date.getDate() + 1)
                   setSelectedDate(date.toISOString().split("T")[0])
                 }}
@@ -724,38 +819,70 @@ export default function SchedulePage() {
                     )
                   }
 
-                  return slotSessions.map((session) => (
-                    <Card key={session.id} className="overflow-hidden border-l-4 border-l-[#0f4d92]">
-                      <CardContent className="p-4">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div className="flex items-start gap-4">
-                            <div className="bg-muted p-2 rounded-lg flex flex-col items-center justify-center min-w-[60px]">
-                              <Clock className="h-5 w-5 text-muted-foreground mb-1" />
-                              <span className="text-xs font-medium">
-                                {formatTime(session.startTime)} - {formatTime(session.endTime)}
-                              </span>
+                  return slotSessions.map((session) => {
+                    const checkInAvailable = canCheckIn(session.date, session.startTime, session.endTime)
+                    const checkInStatus = getCheckInStatus(session.date, session.startTime, session.endTime)
+                    
+                    return (
+                      <Card key={session.id} className="overflow-hidden border-l-4 border-l-[#0f4d92]">
+                        <CardContent className="p-4">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex items-start gap-4">
+                              <div className="bg-muted p-2 rounded-lg flex flex-col items-center justify-center min-w-[60px]">
+                                <Clock className="h-5 w-5 text-muted-foreground mb-1" />
+                                <span className="text-xs font-medium">
+                                  {formatTime(session.startTime)} - {formatTime(session.endTime)}
+                                </span>
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-medium">{session.purpose}</h3>
+                                  <Badge>Lab {session.lab}</Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">Created by {session.createdBy}</p>
+                                
+                                {/* Check-in status indicator */}
+                                <div className="flex items-center gap-2 mt-1">
+                                  {checkInAvailable ? (
+                                    <div className="flex items-center gap-1 text-green-600">
+                                      <CheckCircle className="h-4 w-4" />
+                                      <span className="text-xs font-medium">{checkInStatus}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 text-orange-600">
+                                      <Clock className="h-4 w-4" />
+                                      <span className="text-xs font-medium">{checkInStatus}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {session.configurations.windows && <Badge variant="outline">Windows</Badge>}
+                                  {session.configurations.internet && <Badge variant="outline">Internet</Badge>}
+                                  {session.configurations.homes && <Badge variant="outline">Home Dirs</Badge>}
+                                  {session.configurations.userCleanup && <Badge variant="outline">User Cleanup</Badge>}
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-medium">{session.purpose}</h3>
-                                <Badge>Lab {session.lab}</Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground">Created by {session.createdBy}</p>
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {session.configurations.windows && <Badge variant="outline">Windows</Badge>}
-                                {session.configurations.internet && <Badge variant="outline">Internet</Badge>}
-                                {session.configurations.homes && <Badge variant="outline">Home Dirs</Badge>}
-                                {session.configurations.userCleanup && <Badge variant="outline">User Cleanup</Badge>}
-                              </div>
+                            <div className="flex flex-col gap-2">
+                              <Button 
+                                className="self-start md:self-center" 
+                                onClick={() => navigateToSession(session.id)}
+                                disabled={!checkInAvailable}
+                              >
+                                {checkInAvailable ? "Check In" : "Not Available"}
+                              </Button>
+                              {!checkInAvailable && checkInStatus.includes("available in") && (
+                                <p className="text-xs text-muted-foreground text-center">
+                                  Check-in opens 30min before session
+                                </p>
+                              )}
                             </div>
                           </div>
-                          <Button className="self-start md:self-center" onClick={() => navigateToSession(session.id)}>
-                            Manage Lab
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))
+                        </CardContent>
+                      </Card>
+                    )
+                  })
                 })}
               </div>
             )}

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Plus, AlertTriangle, Search } from "lucide-react"
+import { ArrowLeft, Plus, AlertTriangle, Search, AlertCircle } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -21,17 +21,48 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Mock data for labs
+// Mock data for labs with actual machine counts
 const labsData = [
-  { id: "001", name: "Lab 001", capacity: 72 },
-  { id: "002", name: "Lab 002", capacity: 72 },
-  { id: "003", name: "Lab 003", capacity: 72 },
-  { id: "004", name: "Lab 004", capacity: 72 },
-  { id: "005", name: "Lab 005", capacity: 72 },
-  { id: "006", name: "Lab 006", capacity: 72 },
-  { id: "007", name: "Lab 007", capacity: 72 },
+  { id: "004", name: "Lab 004", capacity: 100, rows: 10 },
+  { id: "005", name: "Lab 005", capacity: 100, rows: 10 },
+  { id: "006", name: "Lab 006", capacity: 100, rows: 10 },
+  { id: "108", name: "Lab 108", capacity: 50, rows: 5 },
+  { id: "109", name: "Lab 109", capacity: 50, rows: 5 },
+  { id: "110", name: "Lab 110", capacity: 50, rows: 5 },
+  { id: "111", name: "Lab 111", capacity: 50, rows: 5 },
 ]
+
+// Generate machine IDs based on lab configuration
+const generateMachineIds = (labId: string) => {
+  const lab = labsData.find(l => l.id === labId)
+  if (!lab) return []
+  
+  const machines = []
+  
+  // Add "All machines" option
+  machines.push({ id: `twk${labId}-all`, label: "All machines", value: "All machines" })
+  
+  // Add "Multiple machines" option
+  machines.push({ id: `twk${labId}-multiple`, label: "Multiple machines", value: "Multiple" })
+  
+  // Generate individual machine IDs
+  for (let row = 1; row <= lab.rows; row++) {
+    const rowStr = row.toString().padStart(2, '0')
+    for (let pos = 1; pos <= 10; pos++) {
+      const posStr = pos.toString().padStart(2, '0')
+      const machineId = `twk${labId}-${rowStr}-${posStr}`
+      machines.push({
+        id: machineId,
+        label: `Row ${row}, Position ${pos} (${machineId})`,
+        value: machineId
+      })
+    }
+  }
+  
+  return machines
+}
 
 // Issue categories
 const issueCategories = [
@@ -74,6 +105,17 @@ interface Issue {
   machineId: string
 }
 
+// Form validation types
+interface ValidationErrors {
+  lab?: string
+  title?: string
+  description?: string
+  category?: string
+  severity?: string
+  machineId?: string
+  general?: string
+}
+
 // Mock data for maintenance issues
 const initialIssues: Issue[] = [
   {
@@ -88,13 +130,13 @@ const initialIssues: Issue[] = [
     reportedAt: "2023-05-05T10:30:00",
     assignedTo: "Maintenance Team",
     updatedAt: "2023-05-05T14:15:00",
-    machineId: "PC-004-12",
+    machineId: "twk004-01-05",
   },
   {
     id: 2,
-    lab: "002",
+    lab: "108",
     title: "Network connectivity issues",
-    description: "Several computers in Lab 002 are experiencing intermittent network connectivity issues.",
+    description: "Several computers in Lab 108 are experiencing intermittent network connectivity issues.",
     category: "network",
     severity: "medium",
     status: "reported",
@@ -106,9 +148,9 @@ const initialIssues: Issue[] = [
   },
   {
     id: 3,
-    lab: "001",
+    lab: "005",
     title: "Software installation failure",
-    description: "Unable to install required software package on machines in Lab 001. Error code: 0x80070643",
+    description: "Unable to install required software package on machines in Lab 005. Error code: 0x80070643",
     category: "software",
     severity: "medium",
     status: "resolved",
@@ -120,7 +162,7 @@ const initialIssues: Issue[] = [
   },
   {
     id: 4,
-    lab: "003",
+    lab: "109",
     title: "Keyboard not working",
     description: "Keyboard on station 15 is not responding. Tried different USB ports but still not working.",
     category: "peripheral",
@@ -130,13 +172,13 @@ const initialIssues: Issue[] = [
     reportedAt: "2023-05-05T13:10:00",
     assignedTo: "Lab Support",
     updatedAt: "2023-05-05T15:30:00",
-    machineId: "PC-003-15",
+    machineId: "twk109-02-05",
   },
   {
     id: 5,
-    lab: "007",
+    lab: "006",
     title: "Power outage in section",
-    description: "The back row of Lab 007 (stations 60-72) has no power. Circuit breaker may have tripped.",
+    description: "The back row of Lab 006 (stations 91-100) has no power. Circuit breaker may have tripped.",
     category: "power",
     severity: "critical",
     status: "in-progress",
@@ -144,7 +186,7 @@ const initialIssues: Issue[] = [
     reportedAt: "2023-05-06T08:45:00",
     assignedTo: "Facilities Management",
     updatedAt: "2023-05-06T09:30:00",
-    machineId: "Stations 60-72",
+    machineId: "Multiple",
   },
 ]
 
@@ -164,6 +206,8 @@ export default function MaintenancePage() {
   const [labFilter, setLabFilter] = useState("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
 
   // New issue form state
@@ -175,6 +219,61 @@ export default function MaintenancePage() {
     severity: "medium",
     machineId: "",
   })
+
+  // Validation functions
+  const validateForm = (): boolean => {
+    const errors: ValidationErrors = {}
+
+    // Required field validation
+    if (!newIssue.lab.trim()) {
+      errors.lab = "Please select a lab"
+    }
+
+    if (!newIssue.title.trim()) {
+      errors.title = "Please provide an issue title"
+    } else if (newIssue.title.trim().length < 3) {
+      errors.title = "Title must be at least 3 characters long"
+    } else if (newIssue.title.trim().length > 100) {
+      errors.title = "Title must be less than 100 characters"
+    }
+
+    if (!newIssue.description.trim()) {
+      errors.description = "Please provide a detailed description"
+    } else if (newIssue.description.trim().length < 10) {
+      errors.description = "Description must be at least 10 characters long"
+    } else if (newIssue.description.trim().length > 500) {
+      errors.description = "Description must be less than 500 characters"
+    }
+
+    if (!newIssue.category.trim()) {
+      errors.category = "Please select an issue category"
+    }
+
+    if (!newIssue.severity.trim()) {
+      errors.severity = "Please select a severity level"
+    }
+
+    if (!newIssue.machineId.trim()) {
+      errors.machineId = "Please specify the machine ID or affected area"
+    } else if (newIssue.machineId.trim().length < 2) {
+      errors.machineId = "Machine ID must be at least 2 characters long"
+    }
+
+    // Check for duplicate issues (same lab, same title)
+    const duplicateIssue = issues.find(
+      (issue) => 
+        issue.lab === newIssue.lab && 
+        issue.title.toLowerCase().trim() === newIssue.title.toLowerCase().trim() &&
+        issue.status !== "resolved"
+    )
+
+    if (duplicateIssue) {
+      errors.general = "A similar unresolved issue already exists for this lab"
+    }
+
+    setValidationErrors(errors)
+    return Object.keys(errors).length === 0
+  }
 
   // Navigate back to dashboard
   const handleBackToDashboard = () => {
@@ -211,26 +310,56 @@ export default function MaintenancePage() {
     return true
   })
 
-  // Handle form changes
+  // Handle form changes with validation clearing
   const handleFormChange = (field: string, value: string) => {
-    setNewIssue({
-      ...newIssue,
-      [field]: value,
-    })
+    // Clear validation errors when user starts typing/selecting
+    if (validationErrors[field as keyof ValidationErrors]) {
+      setValidationErrors(prev => ({ ...prev, [field]: undefined }))
+    }
+    if (validationErrors.general) {
+      setValidationErrors(prev => ({ ...prev, general: undefined }))
+    }
+
+    // Reset machine ID when lab changes
+    if (field === "lab") {
+      setNewIssue({
+        ...newIssue,
+        [field]: value,
+        machineId: "", // Clear machine selection when lab changes
+      })
+    } else {
+      setNewIssue({
+        ...newIssue,
+        [field]: value,
+      })
+    }
   }
 
-  // Handle issue creation
-  const handleCreateIssue = () => {
-    if (newIssue.lab && newIssue.title && newIssue.description && newIssue.category && newIssue.severity) {
+  // Handle issue creation with validation
+  const handleCreateIssue = async () => {
+    if (!validateForm()) {
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
       const newIssueObj: Issue = {
-        id: issues.length + 1,
+        id: Math.max(...issues.map(i => i.id), 0) + 1,
         ...newIssue,
+        title: newIssue.title.trim(),
+        description: newIssue.description.trim(),
+        machineId: newIssue.machineId.trim(),
         status: "reported",
         reportedBy: "You",
         reportedAt: new Date().toISOString(),
         assignedTo: null,
         updatedAt: null,
       }
+      
       const updatedIssues = [newIssueObj, ...issues]
       setIssues(updatedIssues)
       
@@ -238,6 +367,7 @@ export default function MaintenancePage() {
       localStorage.setItem('maintenanceIssues', JSON.stringify(updatedIssues))
       
       setIsAddDialogOpen(false)
+      
       // Reset form
       setNewIssue({
         lab: "",
@@ -247,6 +377,13 @@ export default function MaintenancePage() {
         severity: "medium",
         machineId: "",
       })
+      setValidationErrors({})
+      
+    } catch (error) {
+      console.error('Error creating issue:', error)
+      setValidationErrors({ general: "Failed to create issue. Please try again." })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -317,17 +454,27 @@ export default function MaintenancePage() {
                 Report Issue
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Report Maintenance Issue</DialogTitle>
                 <DialogDescription>Report a new maintenance issue for a lab.</DialogDescription>
               </DialogHeader>
+              
+              {validationErrors.general && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{validationErrors.general}</AlertDescription>
+                </Alert>
+              )}
+
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="lab">Lab</Label>
+                    <Label htmlFor="lab" className="text-sm font-medium">
+                      Lab <span className="text-red-500">*</span>
+                    </Label>
                     <Select value={newIssue.lab} onValueChange={(value) => handleFormChange("lab", value)}>
-                      <SelectTrigger>
+                      <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
                         <SelectValue placeholder="Select lab" />
                       </SelectTrigger>
                       <SelectContent>
@@ -338,43 +485,85 @@ export default function MaintenancePage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {validationErrors.lab && (
+                      <p className="text-sm text-red-500">{validationErrors.lab}</p>
+                    )}
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="machineId">Machine ID</Label>
-                    <Input
-                      id="machineId"
-                      placeholder="e.g., PC-001-15 or 'All'"
-                      value={newIssue.machineId}
-                      onChange={(e) => handleFormChange("machineId", e.target.value)}
-                    />
+                    <Label htmlFor="machineId" className="text-sm font-medium">
+                      Machine ID <span className="text-red-500">*</span>
+                    </Label>
+                    <Select 
+                      value={newIssue.machineId} 
+                      onValueChange={(value) => handleFormChange("machineId", value)}
+                      disabled={!newIssue.lab}
+                    >
+                      <SelectTrigger className={validationErrors.machineId ? "border-red-500" : ""}>
+                        <SelectValue placeholder={newIssue.lab ? "Select machine" : "Select lab first"} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[200px]">
+                        {newIssue.lab && generateMachineIds(newIssue.lab).map((machine) => (
+                          <SelectItem key={machine.id} value={machine.value}>
+                            {machine.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {validationErrors.machineId && (
+                      <p className="text-sm text-red-500">{validationErrors.machineId}</p>
+                    )}
+                    {newIssue.lab && (
+                      <p className="text-xs text-muted-foreground">
+                        Lab {newIssue.lab} has {labsData.find(l => l.id === newIssue.lab)?.capacity} machines
+                      </p>
+                    )}
                   </div>
                 </div>
+                
                 <div className="grid gap-2">
-                  <Label htmlFor="title">Issue Title</Label>
+                  <Label htmlFor="title" className="text-sm font-medium">
+                    Issue Title <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     id="title"
                     placeholder="Brief description of the issue"
                     value={newIssue.title}
                     onChange={(e) => handleFormChange("title", e.target.value)}
-                    required
+                    maxLength={100}
+                    className={validationErrors.title ? "border-red-500" : ""}
                   />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{validationErrors.title && <span className="text-red-500">{validationErrors.title}</span>}</span>
+                    <span>{newIssue.title.length}/100</span>
+                  </div>
                 </div>
+                
                 <div className="grid gap-2">
-                  <Label htmlFor="description">Detailed Description</Label>
+                  <Label htmlFor="description" className="text-sm font-medium">
+                    Detailed Description <span className="text-red-500">*</span>
+                  </Label>
                   <Textarea
                     id="description"
-                    placeholder="Provide details about the issue"
+                    placeholder="Provide details about the issue, steps to reproduce, error messages, etc."
                     value={newIssue.description}
                     onChange={(e) => handleFormChange("description", e.target.value)}
-                    required
+                    maxLength={500}
                     rows={4}
+                    className={validationErrors.description ? "border-red-500" : ""}
                   />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{validationErrors.description && <span className="text-red-500">{validationErrors.description}</span>}</span>
+                    <span>{newIssue.description.length}/500</span>
+                  </div>
                 </div>
+                
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="category">Category</Label>
+                    <Label htmlFor="category" className="text-sm font-medium">
+                      Category <span className="text-red-500">*</span>
+                    </Label>
                     <Select value={newIssue.category} onValueChange={(value) => handleFormChange("category", value)}>
-                      <SelectTrigger>
+                      <SelectTrigger className={validationErrors.category ? "border-red-500" : ""}>
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -385,11 +574,16 @@ export default function MaintenancePage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {validationErrors.category && (
+                      <p className="text-sm text-red-500">{validationErrors.category}</p>
+                    )}
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="severity">Severity</Label>
+                    <Label htmlFor="severity" className="text-sm font-medium">
+                      Severity <span className="text-red-500">*</span>
+                    </Label>
                     <Select value={newIssue.severity} onValueChange={(value) => handleFormChange("severity", value)}>
-                      <SelectTrigger>
+                      <SelectTrigger className={validationErrors.severity ? "border-red-500" : ""}>
                         <SelectValue placeholder="Select severity" />
                       </SelectTrigger>
                       <SelectContent>
@@ -400,14 +594,30 @@ export default function MaintenancePage() {
                         ))}
                       </SelectContent>  
                     </Select>
+                    {validationErrors.severity && (
+                      <p className="text-sm text-red-500">{validationErrors.severity}</p>
+                    )}
                   </div>
                 </div>
               </div>
+              
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsAddDialogOpen(false)
+                    setValidationErrors({})
+                  }}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </Button>
-                <Button onClick={handleCreateIssue}>Report Issue</Button>
+                <Button 
+                  onClick={handleCreateIssue}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Reporting..." : "Report Issue"}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
