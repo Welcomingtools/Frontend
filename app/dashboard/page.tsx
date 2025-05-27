@@ -1,14 +1,39 @@
+"use client"
+
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Server, Users, Activity, Calendar, CalendarRange, AlertTriangle } from "lucide-react"
+import { ArrowRight, Server, Users, Activity, Calendar, CalendarRange, AlertTriangle, LogOut } from "lucide-react"
 
 export default function Dashboard() {
+  const router = useRouter()
+
+  const handleLogout = () => {
+    // Add your logout logic here
+    // For example: clear tokens, clear local storage, etc.
+    // localStorage.removeItem('authToken') // Example
+    
+    // Redirect to login page
+    router.push('/login') // Change this to your actual login route
+  }
+
   return (
     <div className="flex flex-col min-h-screen">
       <header className="bg-[#0f4d92] text-white p-4">
-        <div className="container mx-auto">
-          <h1 className="text-2xl font-bold">MSS Welcoming Team</h1>
-          <p className="text-sm opacity-80">University of the Witwatersrand</p>
+        <div className="container mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold">MSS Welcoming Team</h1>
+            <p className="text-sm opacity-80">University of the Witwatersrand</p>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleLogout}
+            className="text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </Button>
         </div>
       </header>
 
