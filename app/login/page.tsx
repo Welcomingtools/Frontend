@@ -65,7 +65,7 @@ export default function LoginPage() {
             </div>
           </div>
           <CardTitle className="text-3xl text-center font-bold bg-gradient-to-r from-[#0f4d92] to-[#1e5fa8] bg-clip-text text-transparent">
-            MSS Welcoming Team
+            MSS Welcoming Tools
           </CardTitle>
           <CardDescription className="text-center text-gray-600 text-base">
             Access TW Kambule Labs Management System
