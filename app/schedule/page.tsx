@@ -31,6 +31,8 @@ const PURPOSE_OPTIONS = [
   { value: "test", label: "Test" },
   { value: "other", label: "Other" },
 ]
+
+// Define preset lecture slots
 const LECTURE_SLOTS = [
   { id: 1, startTime: "08:00", endTime: "09:45", label: "Morning Session (08:00 - 09:45)" },
   { id: 2, startTime: "10:15", endTime: "12:00", label: "Mid-Morning Session (10:15 - 12:00)" },
@@ -44,7 +46,7 @@ const initialSessions = [
   {
     id: 1,
     lab: "004",
-    date: "2025-05-27", // Updated to current date for testing
+    date: "2025-05-27",
     startTime: "08:00",
     endTime: "09:45",
     slotId: 1,
@@ -60,7 +62,7 @@ const initialSessions = [
   {
     id: 2,
     lab: "108",
-    date: "2025-05-27", // Updated to current date for testing
+    date: "2025-05-27",
     startTime: "10:15",
     endTime: "12:00",
     slotId: 2,
@@ -76,7 +78,7 @@ const initialSessions = [
   {
     id: 3,
     lab: "005",
-    date: "2025-05-27", // Updated to current date for testing
+    date: "2025-05-27",
     startTime: "14:15",
     endTime: "16:00",
     slotId: 4,
@@ -231,16 +233,16 @@ export default function SchedulePage() {
     }
   }, [sessions, isLoading])
 
-  // New session form state - FIXED: Changed slotId from 0 to null
+  // New session form state
   const [newSession, setNewSession] = useState({
     lab: "",
     date: selectedDate,
     slotId: null as number | null,
     startTime: "",
     endTime: "",
-    purposeType: "", // New field for purpose dropdown
-    purpose: "", // This will be the actual purpose text
-    customPurpose: "", // For when "Other" is selected
+    purposeType: "",
+    purpose: "",
+    customPurpose: "",
     configurations: {
       windows: false,
       internet: true,
@@ -431,7 +433,7 @@ export default function SchedulePage() {
       setSessions(updatedSessions)
       setIsAddDialogOpen(false)
       
-      // Reset form - FIXED: Reset slotId to null instead of 0
+      // Reset form
       setNewSession({
         lab: "",
         date: selectedDate,
@@ -747,6 +749,26 @@ export default function SchedulePage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between mb-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const date = new Date(selectedDate)
+                  date.setDate(date.getDate() - 1)
+                  setSelectedDate(date.toISOString().split("T")[0])
+                }}
+              >
+                Previous
+              </Button>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-muted-foreground" />
+                <Input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-[150px]"
+                />
+              </div>
               <Button
                 variant="outline"
                 size="sm"
