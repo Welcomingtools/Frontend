@@ -254,9 +254,9 @@ export default function MaintenancePage() {
     }
 
     if (!newIssue.machineId.trim()) {
-      errors.machineId = "Please specify the machine ID or affected area"
+      errors.machineId = "Please specify the machine position or affected area"
     } else if (newIssue.machineId.trim().length < 2) {
-      errors.machineId = "Machine ID must be at least 2 characters long"
+      errors.machineId = "Machine position must be at least 2 characters long"
     }
 
     // Check for duplicate issues (same lab, same title)
@@ -491,7 +491,7 @@ export default function MaintenancePage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="machineId" className="text-sm font-medium">
-                      Machine ID <span className="text-red-500">*</span>
+                      Machine Position <span className="text-red-500">*</span>
                     </Label>
                     <Select 
                       value={newIssue.machineId} 
@@ -914,7 +914,7 @@ export default function MaintenancePage() {
                     </p>
                   </div>
                   <div>
-                    <h4 className="font-medium">Machine ID</h4>
+                    <h4 className="font-medium">Machine Position</h4>
                     <p className="text-sm">{selectedIssue.machineId || "N/A"}</p>
                   </div>
                 </div>

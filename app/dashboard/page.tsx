@@ -22,7 +22,7 @@ export default function Dashboard() {
       <header className="bg-[#0f4d92] text-white p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold">MSS Welcoming Team</h1>
+            <h1 className="text-2xl font-bold">MSS Welcoming Tools</h1>
             <p className="text-sm opacity-80">University of the Witwatersrand</p>
           </div>
           <Button 
