@@ -727,7 +727,7 @@ export default function SchedulePage() {
                   <div className="grid gap-2">
                     <Label htmlFor="startTime" className="text-sm font-medium">
                       Start Time <span className="text-red-500">*</span>
-                      <span className="text-xs text-muted-foreground ml-1">(7:00 AM - 7:00 PM)</span>
+                      <span className="text-xs text-muted-foreground ml-1">(07:00 - 19:00 )</span>
                     </Label>
                     <Input
                       id="startTime"
@@ -745,7 +745,7 @@ export default function SchedulePage() {
                   <div className="grid gap-2">
                     <Label htmlFor="endTime" className="text-sm font-medium">
                       End Time <span className="text-red-500">*</span>
-                      <span className="text-xs text-muted-foreground ml-1">(Latest: 9:00 PM)</span>
+                      <span className="text-xs text-muted-foreground ml-1">(Latest: 21:00 )</span>
                     </Label>
                     <Input
                       id="endTime"
