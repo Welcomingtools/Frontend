@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Calendar, Clock, Plus, AlertCircle, CheckCircle } from "lucide-react"
+import { ArrowLeft, Calendar, Clock, Plus, AlertCircle, CheckCircle, Trash2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -27,19 +27,18 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 const PURPOSE_OPTIONS = [
   { value: "exam", label: "Exam" },
   { value: "lab", label: "Lab" },
+  { value: "lecture", label: "Lecture" },
   { value: "tutorial", label: "Tutorial" },
   { value: "test", label: "Test" },
   { value: "other", label: "Other" },
 ]
 
-// Define preset lecture slots
-const LECTURE_SLOTS = [
-  { id: 1, startTime: "08:00", endTime: "09:45", label: "Morning Session (08:00 - 09:45)" },
-  { id: 2, startTime: "10:15", endTime: "12:00", label: "Mid-Morning Session (10:15 - 12:00)" },
-  { id: 3, startTime: "12:30", endTime: "13:15", label: "Lunch Session (12:30 - 13:15)" },
-  { id: 4, startTime: "14:15", endTime: "16:00", label: "Afternoon Session (14:15 - 16:00)" },
-  { id: 5, startTime: "17:00", endTime: "19:00", label: "Evening Session (17:00 - 19:00)" },
-]
+// Time validation constants
+const MIN_SESSION_DURATION = 30 // minimum 30 minutes
+const MAX_SESSION_DURATION = 300 // maximum 5 hours
+const BUSINESS_START_TIME = "07:00" // 7:00 AM
+const BUSINESS_END_TIME = "19:00" // 7:00 PM (latest start time)
+const ABSOLUTE_END_TIME = "21:00" // 9:00 PM (latest end time)
 
 // Mock data for scheduled sessions
 const initialSessions = [
@@ -49,8 +48,8 @@ const initialSessions = [
     date: "2025-05-27",
     startTime: "08:00",
     endTime: "09:45",
-    slotId: 1,
     purpose: "CS1 Programming Tutorial",
+    status: "confirmed", // confirmed, under_review, cancelled
     configurations: {
       windows: true,
       internet: true,
@@ -65,8 +64,8 @@ const initialSessions = [
     date: "2025-05-27",
     startTime: "10:15",
     endTime: "12:00",
-    slotId: 2,
     purpose: "MATH2 Exam",
+    status: "confirmed",
     configurations: {
       windows: false,
       internet: false,
@@ -81,8 +80,8 @@ const initialSessions = [
     date: "2025-05-27",
     startTime: "14:15",
     endTime: "16:00",
-    slotId: 4,
     purpose: "STATS1 R Workshop",
+    status: "confirmed",
     configurations: {
       windows: false,
       internet: true,
@@ -97,8 +96,8 @@ const initialSessions = [
     date: "2025-05-28",
     startTime: "08:00",
     endTime: "09:45",
-    slotId: 1,
     purpose: "CS2 Programming Assignment",
+    status: "confirmed",
     configurations: {
       windows: true,
       internet: true,
@@ -139,9 +138,60 @@ const saveSessionsToStorage = (sessions: any[]) => {
 interface ValidationErrors {
   lab?: string
   date?: string
-  slotId?: string
+  startTime?: string
+  endTime?: string
   purpose?: string
   general?: string
+}
+
+// Time validation helper functions
+const parseTime = (timeString: string) => {
+  const [hours, minutes] = timeString.split(':').map(Number)
+  return hours * 60 + minutes // Convert to minutes for easy comparison
+}
+
+const formatTimeForInput = (time: string) => {
+  // Ensure time is in HH:MM format for input fields
+  const [hours, minutes] = time.split(':')
+  return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`
+}
+
+const validateTimeRange = (startTime: string, endTime: string) => {
+  if (!startTime || !endTime) return { 
+    isValid: false,
+    duration: 0,
+    tooShort: false,
+    tooLong: false,
+    endBeforeStart: false
+  }
+  
+  const startMinutes = parseTime(startTime)
+  const endMinutes = parseTime(endTime)
+  
+  const duration = endMinutes - startMinutes
+  
+  return {
+    isValid: duration >= MIN_SESSION_DURATION && duration <= MAX_SESSION_DURATION,
+    duration,
+    tooShort: duration < MIN_SESSION_DURATION,
+    tooLong: duration > MAX_SESSION_DURATION,
+    endBeforeStart: endMinutes <= startMinutes
+  }
+}
+
+const hasTimeConflict = (sessions: any[], newSession: { lab: string, date: string, startTime: string, endTime: string }, excludeId?: number) => {
+  return sessions.some(session => {
+    if (excludeId && session.id === excludeId) return false
+    if (session.lab !== newSession.lab || session.date !== newSession.date) return false
+    
+    const existingStart = parseTime(session.startTime)
+    const existingEnd = parseTime(session.endTime)
+    const newStart = parseTime(newSession.startTime)
+    const newEnd = parseTime(newSession.endTime)
+    
+    // Check for overlap: new session starts before existing ends AND new session ends after existing starts
+    return (newStart < existingEnd && newEnd > existingStart)
+  })
 }
 
 // Check-in validation helper functions
@@ -189,14 +239,17 @@ const getCheckInStatus = (sessionDate: string, startTime: string, endTime: strin
   }
 }
 
-// Time slot validation helper function
-const hasTimeSlotPassed = (date: string, startTime: string) => {
+// Time validation helper function
+const hasTimePassed = (date: string, time: string) => {
   const now = new Date()
-  const slotDateTime = getSessionDateTime(date, startTime)
-  return slotDateTime < now
+  const timeDateTime = getSessionDateTime(date, time)
+  return timeDateTime < now
 }
 
 export default function SchedulePage() {
+  // Constants moved inside component for accessibility
+  const ADMIN_REVIEW_THRESHOLD = 240 // 4 hours - sessions longer than this need admin review
+  
   const [sessions, setSessions] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
@@ -205,6 +258,7 @@ export default function SchedulePage() {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'warning' } | null>(null)
   const router = useRouter()
 
   // Update current time every minute for real-time check-in validation
@@ -215,6 +269,16 @@ export default function SchedulePage() {
 
     return () => clearInterval(timer)
   }, [])
+
+  // Auto-dismiss toast after 5 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null)
+      }, 10000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
 
   // Load sessions on component mount
   useEffect(() => {
@@ -237,7 +301,6 @@ export default function SchedulePage() {
   const [newSession, setNewSession] = useState({
     lab: "",
     date: selectedDate,
-    slotId: null as number | null,
     startTime: "",
     endTime: "",
     purposeType: "",
@@ -256,8 +319,10 @@ export default function SchedulePage() {
     setNewSession(prev => ({ ...prev, date: selectedDate }))
   }, [selectedDate])
 
-  // Filter sessions based on selected date
+  // Filter sessions based on selected date (exclude cancelled sessions from main view)
   const filteredSessions = sessions.filter((session) => {
+    if (session.status === "cancelled") return false
+    
     if (selectedView === "day") {
       return session.date === selectedDate
     } else if (selectedView === "week") {
@@ -266,6 +331,11 @@ export default function SchedulePage() {
     }
     return true
   })
+
+  // Toast notification function
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'error') => {
+    setToast({ message, type })
+  }
 
   // Validation functions
   const validateForm = (): boolean => {
@@ -289,18 +359,60 @@ export default function SchedulePage() {
       }
     }
 
-    if (!newSession.slotId) {
-      errors.slotId = "Please select a time slot"
+    // Start time validation
+    if (!newSession.startTime) {
+      errors.startTime = "Please select a start time"
     } else {
-      // Check if the selected time slot has passed (only for today's date)
-      const slot = LECTURE_SLOTS.find(s => s.id === newSession.slotId)
+      // Check if start time has passed (only for today's date)
       const today = new Date().toISOString().split("T")[0]
+      if (newSession.date === today && hasTimePassed(newSession.date, newSession.startTime)) {
+        errors.startTime = "Start time has already passed. Please choose a future time."
+      }
       
-      if (slot && newSession.date === today && hasTimeSlotPassed(newSession.date, slot.startTime)) {
-        errors.slotId = "The selected time slot has already passed. Please choose a future time slot."
+      // Business hours validation for start time
+      const startMinutes = parseTime(newSession.startTime)
+      const businessStartMinutes = parseTime(BUSINESS_START_TIME)
+      const businessEndMinutes = parseTime(BUSINESS_END_TIME)
+      
+      if (startMinutes < businessStartMinutes) {
+        errors.startTime = `Sessions cannot start before ${BUSINESS_START_TIME} (7:00 AM)`
+      } else if (startMinutes > businessEndMinutes) {
+        // Show toast for after hours booking
+        showToast(
+          "Sessions cannot start after 7:00 PM. Please contact the administrator for after-hours bookings.",
+          'warning'
+        )
+        errors.startTime = "Start time must be before 7:00 PM"
       }
     }
 
+    // End time validation
+    if (!newSession.endTime) {
+      errors.endTime = "Please select an end time"
+    } else {
+      // Business hours validation for end time
+      const endMinutes = parseTime(newSession.endTime)
+      const absoluteEndMinutes = parseTime(ABSOLUTE_END_TIME)
+      
+      if (endMinutes > absoluteEndMinutes) {
+        errors.endTime = `Sessions must end by ${ABSOLUTE_END_TIME} (9:00 PM)`
+      }
+    }
+
+    // Time range validation
+    if (newSession.startTime && newSession.endTime) {
+      const timeValidation = validateTimeRange(newSession.startTime, newSession.endTime)
+      
+      if (timeValidation.endBeforeStart) {
+        errors.endTime = "End time must be after start time"
+      } else if (timeValidation.tooShort) {
+        errors.endTime = `Session must be at least ${MIN_SESSION_DURATION} minutes long`
+      } /*else if (timeValidation.tooLong) {
+        errors.endTime = `Session cannot exceed ${MAX_SESSION_DURATION} minutes (${Math.floor(MAX_SESSION_DURATION / 60)} hours)`
+      }*/
+    }
+
+    // Purpose validation
     if (!newSession.purposeType) {
       errors.purpose = "Please select a purpose type"
     } else if (newSession.purposeType === "other") {
@@ -313,26 +425,15 @@ export default function SchedulePage() {
       }
     }
 
-    // Check if time slot is available for the selected lab
-    if (newSession.lab && newSession.date && newSession.slotId) {
-      if (!isTimeSlotAvailable(newSession.lab, newSession.date, newSession.slotId)) {
-        errors.general = "This time slot is already booked for the selected lab"
+    // Check for time conflicts with existing sessions
+    if (newSession.lab && newSession.date && newSession.startTime && newSession.endTime) {
+      if (hasTimeConflict(sessions, newSession)) {
+        errors.general = "This time slot conflicts with an existing session in the selected lab"
       }
     }
 
     setValidationErrors(errors)
     return Object.keys(errors).length === 0
-  }
-
-  // Check if a time slot is available for a specific lab
-  const isTimeSlotAvailable = (lab: string, date: string, slotId: number) => {
-    return !sessions.some((session) => session.lab === lab && session.date === date && session.slotId === slotId)
-  }
-
-  // Get available labs for a specific time slot
-  const getAvailableLabs = (date: string, slotId: number | null) => {
-    if (!slotId) return labsData
-    return labsData.filter((lab) => isTimeSlotAvailable(lab.id, date, slotId))
   }
 
   // Handle form changes
@@ -360,19 +461,6 @@ export default function SchedulePage() {
         }
         return prev
       })
-    } else if (field === "slotId") {
-      const slotId = Number(value)
-      const slot = LECTURE_SLOTS.find((s) => s.id === slotId)
-      if (slot) {
-        setNewSession({
-          ...newSession,
-          slotId,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          // Reset lab selection when time slot changes to show available labs
-          lab: "",
-        })
-      }
     } else if (field === "purposeType") {
       // Handle purpose type selection
       const purposeType = value as string
@@ -411,18 +499,17 @@ export default function SchedulePage() {
       // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      const slot = LECTURE_SLOTS.find((s) => s.id === newSession.slotId)
-      if (!slot) {
-        setValidationErrors({ general: "Invalid time slot selected" })
-        return
-      }
+      // Check if session needs admin review (more than 4 hours)
+      const timeValidation = validateTimeRange(newSession.startTime, newSession.endTime)
+      const needsReview = timeValidation.duration > ADMIN_REVIEW_THRESHOLD
+      
+      const sessionStatus = needsReview ? "under_review" : "confirmed"
 
       const newSessionObj = {
         id: Math.max(...sessions.map(s => s.id), 0) + 1,
         ...newSession,
         purpose: newSession.purposeType === "other" ? newSession.customPurpose.trim() : newSession.purpose,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
+        status: sessionStatus,
         createdBy: "You",
       }
 
@@ -433,11 +520,20 @@ export default function SchedulePage() {
       setSessions(updatedSessions)
       setIsAddDialogOpen(false)
       
+      // Show appropriate success message
+      if (needsReview) {
+        showToast(
+          `Session scheduled successfully! It requires admin approval due to duration (${Math.round(timeValidation.duration / 60)} hours)`,
+          'warning'
+        )
+      } else {
+        showToast('Session scheduled successfully!', 'success')
+      }
+      
       // Reset form
       setNewSession({
         lab: "",
         date: selectedDate,
-        slotId: null,
         startTime: "",
         endTime: "",
         purposeType: "",
@@ -459,6 +555,22 @@ export default function SchedulePage() {
       setValidationErrors({ general: "Failed to create session. Please try again." })
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // Handle session cancellation
+  const handleCancelSession = (sessionId: number) => {
+    const session = sessions.find(s => s.id === sessionId)
+    if (!session) return
+
+    if (window.confirm(`Are you sure you want to cancel the session "${session.purpose}" scheduled for ${formatDate(session.date)} at ${formatTime(session.startTime)}?\n\nThis action cannot be undone.`)) {
+      const updatedSessions = sessions.map(s => 
+        s.id === sessionId 
+          ? { ...s, status: "cancelled" }
+          : s
+      )
+      setSessions(updatedSessions)
+      showToast('Session cancelled successfully.', 'success')
     }
   }
 
@@ -486,12 +598,6 @@ export default function SchedulePage() {
     return `${hour % 12 || 12}${minutes !== "00" ? ":" + minutes : ""} ${hour >= 12 ? "PM" : "AM"}`
   }
 
-  // Get slot label by start and end time
-  const getSlotLabel = (startTime: string, endTime: string) => {
-    const slot = LECTURE_SLOTS.find((s) => s.startTime === startTime && s.endTime === endTime)
-    return slot ? slot.label : `${formatTime(startTime)} - ${formatTime(endTime)}`
-  }
-
   // Format date for display
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -505,6 +611,34 @@ export default function SchedulePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-[9999] max-w-md rounded-lg shadow-lg p-4 animate-in slide-in-from-top-2 ${
+          toast.type === 'success' ? 'bg-green-100 border border-green-400 text-green-700' :
+          toast.type === 'warning' ? 'bg-yellow-100 border border-yellow-400 text-yellow-700' :
+          'bg-red-100 border border-red-400 text-red-700'
+        }`}>
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              {toast.type === 'success' && <CheckCircle className="h-5 w-5" />}
+              {toast.type === 'warning' && <AlertCircle className="h-5 w-5" />}
+              {toast.type === 'error' && <AlertCircle className="h-5 w-5" />}
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium">{toast.message}</p>
+            </div>
+            <div className="ml-auto pl-3">
+              <button
+                onClick={() => setToast(null)}
+                className="inline-flex rounded-md p-1.5 hover:bg-opacity-20 hover:bg-gray-600 focus:outline-none"
+              >
+                <span className="text-lg leading-none">×</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
@@ -557,66 +691,97 @@ export default function SchedulePage() {
                     )}
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="timeSlot" className="text-sm font-medium">
-                      Time Slot <span className="text-red-500">*</span>
+                    <Label htmlFor="lab" className="text-sm font-medium">
+                      Lab <span className="text-red-500">*</span>
                     </Label>
-                    <Select
-                      value={newSession.slotId ? newSession.slotId.toString() : ""}
-                      onValueChange={(value) => handleFormChange("slotId", Number(value))}
+                    <Select 
+                      value={newSession.lab} 
+                      onValueChange={(value) => handleFormChange("lab", value)}
                     >
-                      <SelectTrigger className={validationErrors.slotId ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select time slot" />
+                      <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Select lab" />
                       </SelectTrigger>
                       <SelectContent>
-                        {LECTURE_SLOTS.map((slot) => {
-                          const today = new Date().toISOString().split("T")[0]
-                          const isSlotPassed = newSession.date === today && hasTimeSlotPassed(newSession.date, slot.startTime)
-                          
-                          return (
-                            <SelectItem 
-                              key={slot.id} 
-                              value={slot.id.toString()}
-                              className={isSlotPassed ? "text-gray-400" : ""}
-                            >
-                              {slot.label} {isSlotPassed && "(Passed)"}
-                            </SelectItem>
-                          )
-                        })}
+                        {labsData.map((lab) => (
+                          <SelectItem key={lab.id} value={lab.id}>
+                            Lab {lab.id} ({lab.capacity} seats)
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                    {validationErrors.slotId && (
-                      <p className="text-sm text-red-500">{validationErrors.slotId}</p>
+                    {validationErrors.lab && (
+                      <p className="text-sm text-red-500">{validationErrors.lab}</p>
                     )}
                   </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="lab" className="text-sm font-medium">
-                    Lab <span className="text-red-500">*</span>
-                  </Label>
-                  <Select 
-                    value={newSession.lab} 
-                    onValueChange={(value) => handleFormChange("lab", value)}
-                    disabled={!newSession.slotId}
-                  >
-                    <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
-                      <SelectValue placeholder={newSession.slotId ? "Select lab" : "Select time slot first"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getAvailableLabs(newSession.date, newSession.slotId).map((lab) => (
-                        <SelectItem key={lab.id} value={lab.id}>
-                          Lab {lab.id} ({lab.capacity} seats)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {validationErrors.lab && (
-                    <p className="text-sm text-red-500">{validationErrors.lab}</p>
-                  )}
-                  {newSession.slotId && getAvailableLabs(newSession.date, newSession.slotId).length === 0 && (
-                    <p className="text-sm text-orange-600">No labs available for this time slot</p>
-                  )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="startTime" className="text-sm font-medium">
+                      Start Time <span className="text-red-500">*</span>
+                      <span className="text-xs text-muted-foreground ml-1">(7:00 AM - 7:00 PM)</span>
+                    </Label>
+                    <Input
+                      id="startTime"
+                      type="time"
+                      value={newSession.startTime}
+                      onChange={(e) => handleFormChange("startTime", e.target.value)}
+                      min="07:00"
+                      max="19:00"
+                      className={validationErrors.startTime ? "border-red-500" : ""}
+                    />
+                    {validationErrors.startTime && (
+                      <p className="text-sm text-red-500">{validationErrors.startTime}</p>
+                    )}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="endTime" className="text-sm font-medium">
+                      End Time <span className="text-red-500">*</span>
+                      <span className="text-xs text-muted-foreground ml-1">(Latest: 9:00 PM)</span>
+                    </Label>
+                    <Input
+                      id="endTime"
+                      type="time"
+                      value={newSession.endTime}
+                      onChange={(e) => handleFormChange("endTime", e.target.value)}
+                      min="07:30"
+                      max="21:00"
+                      className={validationErrors.endTime ? "border-red-500" : ""}
+                    />
+                    {validationErrors.endTime && (
+                      <p className="text-sm text-red-500">{validationErrors.endTime}</p>
+                    )}
+                  </div>
                 </div>
+
+                {/* Duration and admin review warning */}
+                {newSession.startTime && newSession.endTime && (
+                  <div className="mt-2">
+                    {(() => {
+                      const timeValidation = validateTimeRange(newSession.startTime, newSession.endTime)
+                      const duration = timeValidation.duration || 0
+                      const hours = duration / 60
+                      
+                      if (timeValidation.isValid && duration > 240) {
+                        return (
+                          <Alert className="border-orange-200 bg-orange-50">
+                            <AlertCircle className="h-4 w-4 text-orange-600" />
+                            <AlertDescription className="text-orange-800">
+                              <strong>Admin Review Required:</strong> Sessions longer than 4 hours ({hours.toFixed(1)} hours) require administrator approval to minimize booking errors.
+                            </AlertDescription>
+                          </Alert>
+                        )
+                      } else if (timeValidation.isValid) {
+                        return (
+                          <p className="text-sm text-muted-foreground">
+                            Session duration: {Math.round(duration)} minutes ({hours.toFixed(1)} hours)
+                          </p>
+                        )
+                      }
+                      return null
+                    })()}
+                  </div>
+                )}
 
                 <div className="grid gap-2">
                   <Label htmlFor="purposeType" className="text-sm font-medium">
@@ -799,54 +964,19 @@ export default function SchedulePage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Display time slots with their sessions */}
-                {LECTURE_SLOTS.map((slot) => {
-                  const slotSessions = filteredSessions.filter(
-                    (session) => session.startTime === slot.startTime && session.endTime === slot.endTime,
-                  )
-
-                  if (slotSessions.length === 0 && selectedView === "day") {
-                    return (
-                      <Card key={slot.id} className="overflow-hidden border-l-4 border-l-gray-300">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="bg-muted p-2 rounded-lg flex flex-col items-center justify-center min-w-[60px]">
-                                <Clock className="h-5 w-5 text-muted-foreground mb-1" />
-                                <span className="text-xs font-medium">
-                                  {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
-                                </span>
-                              </div>
-                              <p className="text-muted-foreground">Available for booking</p>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setNewSession({
-                                  ...newSession,
-                                  date: selectedDate,
-                                  slotId: slot.id,
-                                  startTime: slot.startTime,
-                                  endTime: slot.endTime,
-                                })
-                                setIsAddDialogOpen(true)
-                              }}
-                            >
-                              <Plus className="h-4 w-4 mr-1" /> Book
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )
-                  }
-
-                  return slotSessions.map((session) => {
-                    const checkInAvailable = canCheckIn(session.date, session.startTime, session.endTime)
+                {/* Display sessions sorted by start time */}
+                {filteredSessions
+                  .sort((a, b) => parseTime(a.startTime) - parseTime(b.startTime))
+                  .map((session) => {
+                    const checkInAvailable = canCheckIn(session.date, session.startTime, session.endTime) && session.status === "confirmed"
                     const checkInStatus = getCheckInStatus(session.date, session.startTime, session.endTime)
+                    const isUnderReview = session.status === "under_review"
+                    const sessionDuration = validateTimeRange(session.startTime, session.endTime).duration
                     
                     return (
-                      <Card key={session.id} className="overflow-hidden border-l-4 border-l-[#0f4d92]">
+                      <Card key={session.id} className={`overflow-hidden border-l-4 ${
+                        isUnderReview ? 'border-l-orange-500' : 'border-l-[#0f4d92]'
+                      }`}>
                         <CardContent className="p-4">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div className="flex items-start gap-4">
@@ -857,23 +987,52 @@ export default function SchedulePage() {
                                 </span>
                               </div>
                               <div className="flex-1">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-medium">{session.purpose}</h3>
                                   <Badge>Lab {session.lab}</Badge>
+                                  {isUnderReview && (
+                                    <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
+                                      Under Review
+                                    </Badge>
+                                  )}
+                                  {session.status === "confirmed" && (
+                                    <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                                      Confirmed
+                                    </Badge>
+                                  )}
                                 </div>
                                 <p className="text-sm text-muted-foreground">Created by {session.createdBy}</p>
                                 
+                                {/* Session duration and admin review info */}
+                                <div className="mt-1">
+                                  <p className="text-xs text-muted-foreground">
+                                    Duration: {Math.round(sessionDuration)} minutes ({(sessionDuration / 60).toFixed(1)} hours)
+                                  </p>
+                                  {isUnderReview && (
+                                    <p className="text-xs text-orange-600 font-medium mt-1">
+                                      ⚠️ Admin approval required for sessions over 4 hours
+                                    </p>
+                                  )}
+                                </div>
+                                
                                 {/* Check-in status indicator */}
                                 <div className="flex items-center gap-2 mt-1">
-                                  {checkInAvailable ? (
-                                    <div className="flex items-center gap-1 text-green-600">
-                                      <CheckCircle className="h-4 w-4" />
-                                      <span className="text-xs font-medium">{checkInStatus}</span>
-                                    </div>
+                                  {session.status === "confirmed" ? (
+                                    checkInAvailable ? (
+                                      <div className="flex items-center gap-1 text-green-600">
+                                        <CheckCircle className="h-4 w-4" />
+                                        <span className="text-xs font-medium">{checkInStatus}</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1 text-orange-600">
+                                        <Clock className="h-4 w-4" />
+                                        <span className="text-xs font-medium">{checkInStatus}</span>
+                                      </div>
+                                    )
                                   ) : (
                                     <div className="flex items-center gap-1 text-orange-600">
-                                      <Clock className="h-4 w-4" />
-                                      <span className="text-xs font-medium">{checkInStatus}</span>
+                                      <AlertCircle className="h-4 w-4" />
+                                      <span className="text-xs font-medium">Pending admin approval</span>
                                     </div>
                                   )}
                                 </div>
@@ -887,16 +1046,35 @@ export default function SchedulePage() {
                               </div>
                             </div>
                             <div className="flex flex-col gap-2">
-                              <Button 
-                                className="self-start md:self-center" 
-                                onClick={() => navigateToSession(session.id)}
-                                disabled={!checkInAvailable}
-                              >
-                                {checkInAvailable ? "Check In" : "Not Available"}
-                              </Button>
-                              {!checkInAvailable && checkInStatus.includes("available in") && (
+                              <div className="flex gap-2">
+                                <Button 
+                                  className="flex-1" 
+                                  onClick={() => navigateToSession(session.id)}
+                                  disabled={!checkInAvailable || isUnderReview}
+                                >
+                                  {isUnderReview ? "Under Review" : 
+                                   checkInAvailable ? "Check In" : "Not Available"}
+                                </Button>
+                                {session.createdBy === "You" && (
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => handleCancelSession(session.id)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                    title="Cancel Session"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                              {!checkInAvailable && checkInStatus.includes("available in") && !isUnderReview && (
                                 <p className="text-xs text-muted-foreground text-center">
                                   Check-in opens 30min before session
+                                </p>
+                              )}
+                              {isUnderReview && (
+                                <p className="text-xs text-orange-600 text-center">
+                                  Awaiting admin approval
                                 </p>
                               )}
                             </div>
@@ -904,8 +1082,7 @@ export default function SchedulePage() {
                         </CardContent>
                       </Card>
                     )
-                  })
-                })}
+                  })}
               </div>
             )}
           </CardContent>
