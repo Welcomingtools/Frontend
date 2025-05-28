@@ -119,19 +119,27 @@ const labsData = [
   { id: "111", name: "Lab 111", capacity: 50, rows: 5 },
 ]
 
-// Session storage utilities - NOTE: localStorage not supported in Claude artifacts
-const SESSIONS_STORAGE_KEY = 'lab_sessions'
+// In-memory storage for session persistence (works in Claude artifacts)
+// This will persist data for the duration of the browser session
+let inMemorySessions: any[] | null = null
 
 const loadSessionsFromStorage = () => {
-  // In a real app, this would use localStorage
-  // For Claude artifacts, we'll just return initial data
-  return initialSessions
+  // If we have sessions in memory, return them
+  if (inMemorySessions !== null) {
+    console.log('Loading sessions from memory:', inMemorySessions)
+    return inMemorySessions
+  }
+  
+  // Otherwise, return initial data and store it in memory
+  console.log('Loading initial sessions and storing in memory')
+  inMemorySessions = [...initialSessions]
+  return inMemorySessions
 }
 
 const saveSessionsToStorage = (sessions: any[]) => {
-  // In a real app, this would save to localStorage
-  // For Claude artifacts, this is a no-op
-  console.log('Would save sessions:', sessions)
+  // Save to in-memory storage
+  inMemorySessions = [...sessions]
+  console.log('Sessions saved to memory:', inMemorySessions)
 }
 
 // Form validation types
