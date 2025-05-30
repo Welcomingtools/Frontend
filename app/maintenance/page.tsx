@@ -491,7 +491,7 @@ export default function MaintenancePage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="machineId" className="text-sm font-medium">
-                      Machine Position <span className="text-red-500">*</span>
+                      Kiosk ID <span className="text-red-500">*</span>
                     </Label>
                     <Select 
                       value={newIssue.machineId} 
