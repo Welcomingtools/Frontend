@@ -1,101 +1,872 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Lock, Unlock } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { Progress } from "@/components/ui/progress"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Mock data for labs
-const labsData = [
-  { id: "001", name: "Lab 001", status: "Available", machines: 72 },
-  { id: "002", name: "Lab 002", status: "Available", machines: 72 },
-  { id: "003", name: "Lab 003", status: "In Use", machines: 72 },
-  { id: "004", name: "Lab 004", status: "Available", machines: 72 },
-  { id: "005", name: "Lab 005", status: "Available", machines: 72 },
-  { id: "006", name: "Lab 006", status: "Maintenance", machines: 72 },
-  { id: "007", name: "Lab 007", status: "Available", machines: 72 },
-]
+interface Machine {
+  id: string // e.g., "TWK-005-01-01"
+  labId: string
+  row: number
+  position: number
+  isWorking: boolean
+  assignedStudent?: string
+}
 
-export default function LabsPage() {
-  const [lockedLabs, setLockedLabs] = useState<string[]>([])
-  const router = useRouter()
+interface Lab {
+  id: string
+  name: string
+  totalMachines: number
+  machinesUp: number
+  machinesDown: number
+  status: "Available" | "In Use" | "Maintenance"
+  currentBooking?: {
+    course: string
+    instructor: string
+    time: string
+    studentsBooked: number
+  }
+  machines: Machine[]
+  allocatedStudents: string[]
+}
 
-  const toggleLock = (labId: string) => {
-    if (lockedLabs.includes(labId)) {
-      setLockedLabs(lockedLabs.filter((id) => id !== labId))
+interface StudentAllocation {
+  studentNumber: string
+  labId: string
+  machineId: string
+  row: number
+  position: number
+}
+
+export default function LabsOverview() {
+  const [labs, setLabs] = useState<Lab[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [studentNumbers, setStudentNumbers] = useState("")
+  const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference">("fill-first")
+  const [allocations, setAllocations] = useState<StudentAllocation[]>([])
+  const [error, setError] = useState("")
+
+  // Generate machines for each lab with the corrected TWK naming convention
+  const generateMachines = (labId: string, totalMachines: number, machinesUp: number): Machine[] => {
+    const machines: Machine[] = []
+    let machineIndex = 0
+
+    if (labId === "004" || labId === "005" || labId === "006") {
+      // Labs 004, 005, 006 have 10 rows with 10 seats each (100 machines)
+      for (let row = 1; row <= 10; row++) {
+        for (let position = 1; position <= 10; position++) {
+          machineIndex++
+          machines.push({
+            id: `TWK-${labId}-${String(row).padStart(2, "0")}-${String(position).padStart(2, "0")}`,
+            labId,
+            row,
+            position,
+            isWorking: machineIndex <= machinesUp,
+          })
+        }
+      }
     } else {
-      setLockedLabs([...lockedLabs, labId])
+      // Labs 108, 109, 110, 111 have different layouts
+      const layouts = {
+        "108": [
+          { row: 1, seats: 9 },
+          { row: 2, seats: 9 },
+          { row: 3, seats: 8 },
+          { row: 4, seats: 8 },
+          { row: 5, seats: 8 },
+          { row: 6, seats: 8 },
+        ],
+        "109": [
+          { row: 1, seats: 9 },
+          { row: 2, seats: 9 },
+          { row: 3, seats: 8 },
+          { row: 4, seats: 8 },
+          { row: 5, seats: 8 },
+          { row: 6, seats: 8 },
+        ],
+        "110": [
+          { row: 1, seats: 9 },
+          { row: 2, seats: 9 },
+          { row: 3, seats: 8 },
+          { row: 4, seats: 8 },
+          { row: 5, seats: 8 },
+          { row: 6, seats: 8 },
+        ],
+        "111": [
+          { row: 1, seats: 9 },
+          { row: 2, seats: 9 },
+          { row: 3, seats: 8 },
+          { row: 4, seats: 8 },
+          { row: 5, seats: 8 },
+          { row: 6, seats: 8 },
+        ],
+      }
+
+      const layout = layouts[labId as keyof typeof layouts] || []
+
+      for (const rowConfig of layout) {
+        for (let position = 1; position <= rowConfig.seats; position++) {
+          machineIndex++
+          machines.push({
+            id: `TWK-${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`,
+            labId,
+            row: rowConfig.row,
+            position,
+            isWorking: machineIndex <= machinesUp,
+          })
+        }
+      }
     }
+
+    return machines
+  }
+
+  useEffect(() => {
+    const fetchLabs = async () => {
+      const mockLabs: Lab[] = [
+        {
+          id: "004",
+          name: "Lab 004",
+          totalMachines: 100,
+          machinesUp: 95,
+          machinesDown: 5,
+          status: "Available",
+          machines: generateMachines("004", 100, 95),
+          allocatedStudents: [],
+        },
+        {
+          id: "005",
+          name: "Lab 005",
+          totalMachines: 100,
+          machinesUp: 85,
+          machinesDown: 15,
+          status: "In Use",
+          currentBooking: {
+            course: "Computer Science 101",
+            instructor: "Dr. Sarah Johnson",
+            time: "09:00 AM - 11:00 AM",
+            studentsBooked: 30,
+          },
+          machines: generateMachines("005", 100, 85),
+          allocatedStudents: [],
+        },
+        {
+          id: "006",
+          name: "Lab 006",
+          totalMachines: 100,
+          machinesUp: 0,
+          machinesDown: 100,
+          status: "Maintenance",
+          machines: generateMachines("006", 100, 0),
+          allocatedStudents: [],
+        },
+        {
+          id: "108",
+          name: "Lab 108",
+          totalMachines: 50,
+          machinesUp: 48,
+          machinesDown: 2,
+          status: "Available",
+          machines: generateMachines("108", 50, 48),
+          allocatedStudents: [],
+        },
+        {
+          id: "109",
+          name: "Lab 109",
+          totalMachines: 50,
+          machinesUp: 45,
+          machinesDown: 5,
+          status: "In Use",
+          currentBooking: {
+            course: "Data Structures",
+            instructor: "Prof. Mike Chen",
+            time: "14:00 PM - 16:00 PM",
+            studentsBooked: 20,
+          },
+          machines: generateMachines("109", 50, 45),
+          allocatedStudents: [],
+        },
+        {
+          id: "110",
+          name: "Lab 110",
+          totalMachines: 50,
+          machinesUp: 50,
+          machinesDown: 0,
+          status: "Available",
+          machines: generateMachines("110", 50, 50),
+          allocatedStudents: [],
+        },
+        {
+          id: "111",
+          name: "Lab 111",
+          totalMachines: 50,
+          machinesUp: 47,
+          machinesDown: 3,
+          status: "Available",
+          machines: generateMachines("111", 50, 47),
+          allocatedStudents: [],
+        },
+      ]
+
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      setLabs(mockLabs)
+      setIsLoading(false)
+    }
+
+    fetchLabs()
+  }, [])
+
+  const showToast = (title: string, description: string, variant: "default" | "destructive" = "default") => {
+    setError(variant === "destructive" ? `${title}: ${description}` : "")
+    // Clear error after 5 seconds
+    setTimeout(() => setError(""), 5000)
   }
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Available":
-        return "bg-green-100 text-green-800"
+        return "bg-green-500"
       case "In Use":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-500"
       case "Maintenance":
-        return "bg-red-100 text-red-800"
+        return "bg-red-500"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-gray-500"
     }
   }
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
-            </Button>
-            <h1 className="text-xl font-bold">TW Kambule Laboratories</h1>
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "Available":
+        return <CheckCircle2 className="h-4 w-4" />
+      case "In Use":
+        return <Users className="h-4 w-4" />
+      case "Maintenance":
+        return <AlertTriangle className="h-4 w-4" />
+      default:
+        return <Monitor className="h-4 w-4" />
+    }
+  }
+
+  const getAvailableMachines = (lab: Lab): Machine[] => {
+    if (lab.status === "Maintenance") return []
+
+    const currentlyBooked = lab.currentBooking?.studentsBooked || 0
+    const workingMachines = lab.machines.filter((m) => m.isWorking && !m.assignedStudent)
+
+    // Skip machines that are already booked for current sessions
+    return workingMachines.slice(currentlyBooked)
+  }
+
+  const calculateAvailableSeats = (lab: Lab) => {
+    return getAvailableMachines(lab).length
+  }
+
+  const getTotalAvailableSeats = () => {
+    return labs.reduce((total, lab) => total + calculateAvailableSeats(lab), 0)
+  }
+
+  const parseStudentNumbers = (input: string): string[] => {
+    return input
+      .split(/[\n,;]/)
+      .map((num) => num.trim())
+      .filter((num) => num.length > 0)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }
+
+  const generateSeatingPlan = () => {
+    const students = parseStudentNumbers(studentNumbers)
+    if (students.length === 0) {
+      showToast("No Students", "Please enter student numbers to allocate", "destructive")
+      return
+    }
+
+    const totalAvailable = getTotalAvailableSeats()
+    if (students.length > totalAvailable) {
+      showToast(
+        "Insufficient Capacity",
+        `Only ${totalAvailable} seats available across all labs. Cannot allocate ${students.length} students.`,
+        "destructive"
+      )
+      return
+    }
+
+    const newAllocations: StudentAllocation[] = []
+    const updatedLabs = [...labs]
+
+    switch (allocationStrategy) {
+      case "balanced":
+        const availableLabs = updatedLabs.filter((lab) => calculateAvailableSeats(lab) > 0)
+        let labIndex = 0
+
+        for (const student of students) {
+          let allocated = false
+          let attempts = 0
+
+          while (!allocated && attempts < availableLabs.length) {
+            const lab = availableLabs[labIndex % availableLabs.length]
+            const availableMachines = getAvailableMachines(lab)
+
+            if (availableMachines.length > 0) {
+              const machine = availableMachines[0]
+              machine.assignedStudent = student
+
+              newAllocations.push({
+                studentNumber: student,
+                labId: lab.id,
+                machineId: machine.id,
+                row: machine.row,
+                position: machine.position,
+              })
+
+              lab.allocatedStudents.push(student)
+              allocated = true
+            }
+
+            labIndex++
+            attempts++
+          }
+        }
+        break
+
+      case "fill-first":
+        for (const student of students) {
+          let allocated = false
+
+          for (const lab of updatedLabs) {
+            const availableMachines = getAvailableMachines(lab)
+            if (availableMachines.length > 0) {
+              const machine = availableMachines[0]
+              machine.assignedStudent = student
+
+              newAllocations.push({
+                studentNumber: student,
+                labId: lab.id,
+                machineId: machine.id,
+                row: machine.row,
+                position: machine.position,
+              })
+
+              lab.allocatedStudents.push(student)
+              allocated = true
+              break
+            }
+          }
+
+          if (!allocated) break
+        }
+        break
+
+      case "preference":
+        const sortedLabs = [...updatedLabs].sort((a, b) => calculateAvailableSeats(b) - calculateAvailableSeats(a))
+
+        for (const student of students) {
+          let allocated = false
+
+          for (const lab of sortedLabs) {
+            const availableMachines = getAvailableMachines(lab)
+            if (availableMachines.length > 0) {
+              const machine = availableMachines[0]
+              machine.assignedStudent = student
+
+              newAllocations.push({
+                studentNumber: student,
+                labId: lab.id,
+                machineId: machine.id,
+                row: machine.row,
+                position: machine.position,
+              })
+
+              lab.allocatedStudents.push(student)
+              allocated = true
+              break
+            }
+          }
+
+          if (!allocated) break
+        }
+        break
+    }
+
+    setLabs(updatedLabs)
+    setAllocations(newAllocations)
+    setError("")
+
+    showToast(
+      "Seating Plan Generated",
+      `Successfully allocated ${newAllocations.length} students across ${
+        new Set(newAllocations.map((a) => a.labId)).size
+      } labs`
+    )
+  }
+
+  const clearAllAllocations = () => {
+    setLabs((prev) =>
+      prev.map((lab) => ({
+        ...lab,
+        allocatedStudents: [],
+        machines: lab.machines.map((machine) => ({
+          ...machine,
+          assignedStudent: undefined,
+        })),
+      })),
+    )
+    setAllocations([])
+    setStudentNumbers("")
+    setError("")
+
+    showToast("Allocations Cleared", "All seat allocations have been cleared")
+  }
+
+  const exportToPDF = () => {
+    if (allocations.length === 0) {
+      showToast("No Allocations", "Generate a seating plan first before exporting", "destructive")
+      return
+    }
+
+    // Sort allocations by student number for better organization
+    const sortedAllocations = [...allocations].sort((a, b) => 
+      a.studentNumber.localeCompare(b.studentNumber, undefined, { numeric: true })
+    )
+
+    // Create PDF content as HTML string with table format
+    const pdfContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>TW Kambule Labs - Seating Plan</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              margin: 20px;
+              line-height: 1.4;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+            }
+            .header h1 {
+              color: #000;
+              margin: 0;
+              font-size: 24px;
+              font-weight: bold;
+            }
+            .header h2 {
+              color: #000;
+              margin: 10px 0;
+              font-size: 20px;
+              font-weight: normal;
+            }
+            .header p {
+              margin: 5px 0;
+              color: #666;
+              font-size: 14px;
+            }
+            
+            .summary-info {
+              margin-bottom: 20px;
+              text-align: center;
+            }
+            
+            .allocation-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 30px;
+              font-size: 12px;
+            }
+            
+            .allocation-table th {
+              background-color: #000;
+              color: white;
+              padding: 8px;
+              text-align: center;
+              font-weight: bold;
+              border: 1px solid #000;
+            }
+            
+            .allocation-table td {
+              padding: 6px 8px;
+              text-align: center;
+              border: 1px solid #000;
+              vertical-align: middle;
+            }
+            
+            .allocation-table tbody tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            
+            .student-number {
+              font-weight: bold;
+              font-family: monospace;
+            }
+            
+            .module-code {
+              font-family: monospace;
+              font-weight: bold;
+            }
+            
+            .seat-number {
+              font-weight: bold;
+              color: #1e40af;
+            }
+            
+            .lab-header {
+              background-color: #e5e7eb;
+              font-weight: bold;
+              text-align: center;
+              padding: 10px;
+              border: 2px solid #000;
+            }
+            
+            .page-break {
+              page-break-before: always;
+            }
+            
+            @media print {
+              body { 
+                margin: 15px;
+                font-size: 11px;
+              }
+              .allocation-table {
+                font-size: 10px;
+              }
+              .lab-header {
+                background-color: #e5e7eb !important;
+                -webkit-print-color-adjust: exact;
+              }
+              .allocation-table th {
+                background-color: #000 !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>TW KAMBULE LABORATORIES</h1>
+            <h2>EXAMINATION SEATING PLAN</h2>
+            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            <p><strong>Time:</strong> ${new Date().toLocaleTimeString()}</p>
+            <p><strong>Total Students:</strong> ${allocations.length} | <strong>Labs Used:</strong> ${new Set(allocations.map((a) => a.labId)).size}</p>
           </div>
+
+          <table class="allocation-table">
+            <thead>
+              <tr>
+                <th style="width: 25%;">STUDENT NUMBER</th>
+                <th style="width: 20%;">MODULE CODE</th>
+                <th style="width: 15%;">LAB</th>
+                <th style="width: 15%;">MACHINE ID</th>
+                <th style="width: 10%;">ROW</th>
+                <th style="width: 15%;">SEAT</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sortedAllocations
+                .map((allocation, index) => {
+                  const lab = labs.find(l => l.id === allocation.labId)
+                  // Add lab header rows to separate different labs
+                  const isFirstInLab = index === 0 || sortedAllocations[index - 1].labId !== allocation.labId
+                  const labHeaderRow = isFirstInLab ? `
+                    <tr>
+                      <td colspan="6" class="lab-header">
+                        ${lab?.name.toUpperCase()} - ${sortedAllocations.filter(a => a.labId === allocation.labId).length} STUDENTS
+                      </td>
+                    </tr>
+                  ` : ''
+                  
+                  return `
+                    ${labHeaderRow}
+                    <tr>
+                      <td class="student-number">${allocation.studentNumber}</td>
+                      <td class="module-code">MSL${allocation.labId}</td>
+                      <td>${allocation.labId}</td>
+                      <td style="font-family: monospace; font-size: 10px;">${allocation.machineId}</td>
+                      <td>${allocation.row}</td>
+                      <td class="seat-number">${allocation.position}</td>
+                    </tr>
+                  `
+                }).join('')}
+            </tbody>
+          </table>
+
+          <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #666;">
+            <p><strong>INSTRUCTIONS:</strong></p>
+            <p>• Students must sit in their assigned seats only</p>
+            <p>• No mobile phones or unauthorized materials allowed</p>
+            <p>• Report any technical issues to the invigilator immediately</p>
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ccc;">
+            <p>TW Kambule Laboratories - Computer Lab Management System</p>
+            <p>Generated automatically - Strategy: ${allocationStrategy.charAt(0).toUpperCase() + allocationStrategy.slice(1).replace('-', ' ')}</p>
+          </div>
+        </body>
+      </html>
+    `
+
+    // Create and trigger PDF download
+    const blob = new Blob([pdfContent], { type: 'text/html' })
+    const url = window.URL.createObjectURL(blob)
+    const printWindow = window.open(url, '_blank')
+    
+    if (printWindow) {
+      printWindow.onload = () => {
+        printWindow.focus()
+        printWindow.print()
+        // Clean up
+        setTimeout(() => {
+          printWindow.close()
+          window.URL.revokeObjectURL(url)
+        }, 1000)
+      }
+    }
+
+    showToast("Export Started", "PDF generation initiated - check your browser's print dialog")
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-[#1e40af] text-white p-4">
+          <div className="container mx-auto flex items-center gap-4">
+            <ArrowLeft className="h-6 w-6" />
+            <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
+          </div>
+        </header>
+        <main className="container mx-auto p-6">
+          <div className="text-center">Loading labs...</div>
+        </main>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-[#1e40af] text-white p-4">
+        <div className="container mx-auto flex items-center gap-4">
+          <ArrowLeft className="h-6 w-6" />
+          <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
         </div>
       </header>
 
-      <main className="flex-1 container mx-auto p-4">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {labsData.map((lab) => (
-            <Card key={lab.id} className="overflow-hidden">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle>Lab {lab.id}</CardTitle>
-                  <Badge className={getStatusColor(lab.status)}>{lab.status}</Badge>
+      <main className="container mx-auto p-6 space-y-6">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Seating Plan Generator */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Generate Seating Plan
+            </CardTitle>
+            <CardDescription>
+              Allocate students across all available labs. Total capacity: {getTotalAvailableSeats()} seats
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="students">Student Numbers</Label>
+                  <Textarea
+                    id="students"
+                    placeholder="Enter student numbers (one per line or comma-separated)&#10;e.g.:&#10;2024001&#10;2024002&#10;2024003"
+                    value={studentNumbers}
+                    onChange={(e) => setStudentNumbers(e.target.value)}
+                    rows={6}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Students to allocate: {parseStudentNumbers(studentNumbers).length}
+                  </p>
                 </div>
-                <CardDescription>{lab.machines} machines</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex justify-between items-center">
-                  <Button
-                    variant={lockedLabs.includes(lab.id) ? "destructive" : "outline"}
-                    size="sm"
-                    onClick={() => toggleLock(lab.id)}
-                    className="flex items-center gap-1"
-                  >
-                    {lockedLabs.includes(lab.id) ? (
-                      <>
-                        <Unlock className="h-4 w-4" /> Release
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="h-4 w-4" /> Lock for me
-                      </>
+
+                <div>
+                  <Label htmlFor="strategy">Allocation Strategy</Label>
+                  <Select value={allocationStrategy} onValueChange={(value: any) => setAllocationStrategy(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="balanced">Balanced - Distribute evenly across labs</SelectItem>
+                      <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
+                      <SelectItem value="preference">Preference - Prefer larger labs first</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium mb-3">Capacity Summary</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span>Total Available Seats:</span>
+                      <span className="font-medium text-green-600">{getTotalAvailableSeats()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Students to Allocate:</span>
+                      <span className="font-medium text-blue-600">{parseStudentNumbers(studentNumbers).length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Remaining Capacity:</span>
+                      <span className="font-medium text-gray-600">
+                        {Math.max(0, getTotalAvailableSeats() - parseStudentNumbers(studentNumbers).length)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button onClick={generateSeatingPlan} className="flex-1" disabled={studentNumbers.trim() === ""}>
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Generate Plan
+                  </Button>
+                  <Button variant="outline" onClick={clearAllAllocations}>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Clear All
+                  </Button>
+                  <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export PDF
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Labs Grid */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {labs.map((lab) => {
+            const availableSeats = calculateAvailableSeats(lab)
+            const allocatedCount = lab.allocatedStudents.length
+            const currentlyBooked = lab.currentBooking?.studentsBooked || 0
+
+            return (
+              <Card key={lab.id} className="relative">
+                <CardHeader>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle className="text-xl">{lab.name}</CardTitle>
+                      <CardDescription>{lab.totalMachines} machines</CardDescription>
+                    </div>
+                    <Badge className={`${getStatusColor(lab.status)} text-white flex items-center gap-1`}>
+                      {getStatusIcon(lab.status)}
+                      {lab.status}
+                    </Badge>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="space-y-4">
+                  {/* Machine Status */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Machines Online</span>
+                      <span className="font-medium text-green-600">
+                        {lab.machinesUp}/{lab.totalMachines}
+                      </span>
+                    </div>
+                    <Progress value={(lab.machinesUp / lab.totalMachines) * 100} className="h-2" />
+                  </div>
+
+                  {/* Seat Allocation Summary */}
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                    <h4 className="font-medium text-sm">Seat Status</h4>
+
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="text-center">
+                        <div className="text-xl font-bold text-green-600">{availableSeats}</div>
+                        <div className="text-gray-500">Available</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xl font-bold text-blue-600">{allocatedCount}</div>
+                        <div className="text-gray-500">Allocated</div>
+                      </div>
+                    </div>
+
+                    {lab.status === "In Use" && lab.currentBooking && (
+                      <div className="border-t pt-3 space-y-1">
+                        <div className="text-xs font-medium text-gray-700">{lab.currentBooking.course}</div>
+                        <div className="text-xs text-gray-500">{lab.currentBooking.instructor}</div>
+                        <div className="text-xs text-gray-500">{lab.currentBooking.time}</div>
+                        <div className="text-xs">
+                          <span className="font-medium">{currentlyBooked}</span> pre-booked
+                        </div>
+                      </div>
                     )}
-                  </Button>
-                  <Button onClick={() => router.push(`/labs/${lab.id}`)} className="bg-[#0f4d92] hover:bg-[#0a3d7a]">
-                    Manage
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+
+                    {allocatedCount > 0 && (
+                      <div className="border-t pt-2">
+                        <div className="text-xs text-gray-600">
+                          <span className="font-medium">{allocatedCount}</span> students allocated by seating plan
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <Link href={`/labs/${lab.id}`} className="block">
+                    <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8]">View configurations</Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
+
+        {/* Allocation Results */}
+        {allocations.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Generated Seating Plan</CardTitle>
+              <CardDescription>
+                {allocations.length} students allocated across {new Set(allocations.map((a) => a.labId)).size} labs
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4">
+                {labs
+                  .filter((lab) => lab.allocatedStudents.length > 0)
+                  .map((lab) => (
+                    <div key={lab.id} className="border rounded-lg p-4">
+                      <h4 className="font-medium mb-3">
+                        {lab.name} - {lab.allocatedStudents.length} students
+                      </h4>
+                      <div className="space-y-2">
+                        {allocations
+                          .filter((a) => a.labId === lab.id)
+                          .map((allocation) => (
+                            <div
+                              key={`${allocation.labId}-${allocation.studentNumber}`}
+                              className="flex justify-between items-center bg-blue-50 px-3 py-2 rounded"
+                            >
+                              <span className="font-medium text-blue-800">{allocation.studentNumber}</span>
+                              <div className="text-sm text-gray-600">
+                                <span className="font-mono bg-gray-100 px-2 py-1 rounded">{allocation.machineId}</span>
+                                <span className="ml-2">
+                                  Row {allocation.row}, Seat {allocation.position}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   )

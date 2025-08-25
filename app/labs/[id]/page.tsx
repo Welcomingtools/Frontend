@@ -1,105 +1,115 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Power, Monitor, Globe, Database, Home, RefreshCcw, AlertCircle } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { ArrowLeft, Monitor, Globe, Home, RefreshCcw, CheckCircle, XCircle, Clock } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 
-export default function LabDetailPage() {
+// Mock session data - this would come from your scheduling system
+const mockSessionData = {
+  sessionId: "SES-2024-001",
+  scheduledBy: "Dr. Sarah Johnson",
+  course: "Computer Science 101",
+  startTime: "09:00 AM",
+  endTime: "11:00 AM",
+  date: "2024-08-24",
+  configurations: {
+    windowsBoot: true,
+    userCleanup: true,
+    homeDirectories: false,
+    internetAccess: true,
+    dataHandout: true
+  },
+  appliedAt: "08:55 AM",
+  status: "active"
+}
+
+// Lab capacity data with proper typing
+const labCapacities: Record<string, number> = {
+  "004": 100,
+  "005": 100,
+  "006": 100,
+  "108": 50,
+  "109": 50,
+  "110": 50,
+  "111": 50,
+}
+
+export default function LabStatusPage() {
   const { id } = useParams()
-  const [isPowerOn, setIsPowerOn] = useState(true)
-  const [isWindowsArmed, setIsWindowsArmed] = useState(false)
-  const [isUserCleanupArmed, setIsUserCleanupArmed] = useState(true)
-  const [areHomesArmed, setAreHomesArmed] = useState(true)
-  const [isInternetOn, setIsInternetOn] = useState(true)
-  const [isDataHandoutActive, setIsDataHandoutActive] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [loadingAction, setLoadingAction] = useState("")
-  const [progress, setProgress] = useState(0)
-  const [machinesUp, setMachinesUp] = useState(68)
-  const [machinesDown, setMachinesDown] = useState(4)
-  const [recentActions, setRecentActions] = useState([
-    { action: "Internet enabled", timestamp: "10:45 AM", user: "John D." },
-    { action: "Windows disarmed", timestamp: "10:30 AM", user: "Sarah M." },
-    { action: "Power cycled", timestamp: "10:15 AM", user: "John D." },
-  ])
+  const [sessionData, setSessionData] = useState(mockSessionData)
+  
+  // Get the correct capacity for this lab with proper type handling
+  const labId = Array.isArray(id) ? id[0] : id
+  const totalMachines = labCapacities[labId || ''] || 50
+  
+  // Generate random machine counts
+  const getRandomMachineCount = (capacity: number) => {
+    // Random number of machines down (anywhere from 0 to 15% of capacity)
+    const maxDown = Math.floor(capacity * 0.15)
+    const machinesDown = Math.floor(Math.random() * (maxDown + 1))
+    const machinesUp = capacity - machinesDown
+    return { up: machinesUp, down: machinesDown }
+  }
+  
+  const [machineStatus] = useState(() => getRandomMachineCount(totalMachines))
+  const [machinesUp, setMachinesUp] = useState(machineStatus.up)
+  const [machinesDown, setMachinesDown] = useState(machineStatus.down)
+  const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString())
 
-  const totalMachines = machinesUp + machinesDown
-
-  const executeCommand = (command: string) => {
-    setIsLoading(true)
-    setLoadingAction(command)
-    setProgress(0)
-
-    // Simulate command execution with progress
+  // Simulate real-time updates with random changes
+  useEffect(() => {
     const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsLoading(false)
-
-          // Add action to recent actions
-          const newAction = {
-            action: command,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            user: "You",
+      setLastUpdated(new Date().toLocaleTimeString())
+      // Simulate occasional random machine status changes
+      if (Math.random() < 0.1) {
+        const change = Math.random() < 0.5 ? 1 : -1
+        setMachinesUp(prev => {
+          const newCount = prev + change
+          const newDown = totalMachines - newCount
+          if (newCount >= 0 && newCount <= totalMachines && newDown >= 0) {
+            setMachinesDown(newDown)
+            return newCount
           }
-          setRecentActions([newAction, ...recentActions.slice(0, 4)])
+          return prev
+        })
+      }
+    }, 30000) // Update every 30 seconds
 
-          return 0
-        }
-        return prev + 10
-      })
-    }, 300)
+    return () => clearInterval(interval)
+  }, [totalMachines])
+
+  const getConfigurationStatus = (isEnabled: boolean) => {
+    return isEnabled ? (
+      <div className="flex items-center gap-2 text-green-600">
+        <CheckCircle className="h-4 w-4" />
+        <span className="text-sm font-medium">Enabled</span>
+      </div>
+    ) : (
+      <div className="flex items-center gap-2 text-red-600">
+        <XCircle className="h-4 w-4" />
+        <span className="text-sm font-medium">Disabled</span>
+      </div>
+    )
   }
 
-  const handlePowerToggle = () => {
-    const command = isPowerOn ? `powerdown ${id}` : `powerup ${id}`
-    executeCommand(command)
-    setIsPowerOn(!isPowerOn)
-  }
-
-  const handleWindowsToggle = () => {
-    const command = isWindowsArmed ? `disarmwindows ${id}` : `armwindows ${id}`
-    executeCommand(command)
-    setIsWindowsArmed(!isWindowsArmed)
-  }
-
-  const handleUserCleanupToggle = () => {
-    const command = isUserCleanupArmed ? `disarmvmusercleanup ${id}` : `armvmusercleanup ${id}`
-    executeCommand(command)
-    setIsUserCleanupArmed(!isUserCleanupArmed)
-  }
-
-  const handleHomesToggle = () => {
-    const command = areHomesArmed ? `disarmhomes ${id}` : `armhomes ${id}`
-    executeCommand(command)
-    setAreHomesArmed(!areHomesArmed)
-  }
-
-  const handleInternetToggle = () => {
-    const command = isInternetOn ? `internetdown ${id}` : `internetup ${id}`
-    executeCommand(command)
-    setIsInternetOn(!isInternetOn)
-  }
-
-  const handleDataHandout = () => {
-    if (!isDataHandoutActive) {
-      executeCommand(`handoutdata ${id}`)
-      setIsDataHandoutActive(true)
+  const getSessionStatusBadge = (status: string) => {
+    switch (status) {
+      case "active":
+        return <Badge className="bg-green-600">Session Active</Badge>
+      case "scheduled":
+        return <Badge className="bg-blue-600">Scheduled</Badge>
+      case "ended":
+        return <Badge className="bg-gray-600">Session Ended</Badge>
+      default:
+        return <Badge variant="outline">No Session</Badge>
     }
-  }
-
-  const handleReboot = () => {
-    executeCommand(`reboot ${id}`)
   }
 
   return (
@@ -112,28 +122,51 @@ export default function LabDetailPage() {
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
-            <h1 className="text-xl font-bold">Lab {id} Management</h1>
+            <h1 className="text-xl font-bold">Lab {labId} Status</h1>
           </div>
-          <Badge className="bg-green-600">Locked by You</Badge>
+          {getSessionStatusBadge(sessionData.status)}
         </div>
       </header>
 
       <main className="flex-1 container mx-auto p-4">
-        {isLoading && (
-          <div className="mb-4">
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Executing command</AlertTitle>
-              <AlertDescription>
-                <div className="flex flex-col gap-2">
-                  <p>
-                    Running: <code>{loadingAction}</code>
-                  </p>
-                  <Progress value={progress} className="h-2" />
+        {/* Session Information */}
+        {sessionData.status === "active" && (
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Current Session
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Course</p>
+                  <p className="font-medium">{sessionData.course}</p>
                 </div>
-              </AlertDescription>
-            </Alert>
-          </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Instructor</p>
+                  <p className="font-medium">{sessionData.scheduledBy}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Time</p>
+                  <p className="font-medium">{sessionData.startTime} - {sessionData.endTime}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Session ID</p>
+                  <p className="font-mono text-sm">{sessionData.sessionId}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Configurations Applied</p>
+                  <p className="font-medium">{sessionData.appliedAt}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Last Updated</p>
+                  <p className="font-medium">{lastUpdated}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         <div className="grid gap-4 md:grid-cols-2 mb-4">
@@ -155,22 +188,19 @@ export default function LabDetailPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
-                    <span className="text-2xl font-bold">{machinesUp}</span>
+                    <span className="text-2xl font-bold text-green-600">{machinesUp}</span>
                     <span className="text-xs text-muted-foreground">Machines Up</span>
                   </div>
                   <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
-                    <span className="text-2xl font-bold">{machinesDown}</span>
+                    <span className="text-2xl font-bold text-red-600">{machinesDown}</span>
                     <span className="text-xs text-muted-foreground">Machines Down</span>
                   </div>
                 </div>
 
-                <div className="flex justify-between">
-                  <Button variant="outline" size="sm" onClick={() => executeCommand(`listmachinesup ${id}`)}>
-                    List Machines Up
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => executeCommand(`listmachinesdown ${id}`)}>
-                    List Machines Down
-                  </Button>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Lab Capacity: {totalMachines} machines
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -178,116 +208,130 @@ export default function LabDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
+              <CardTitle>Applied Configurations</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <Button
-                  variant={isPowerOn ? "default" : "destructive"}
-                  className="flex items-center gap-2"
-                  onClick={handlePowerToggle}
-                >
-                  <Power className="h-4 w-4" />
-                  {isPowerOn ? "Power Down" : "Power Up"}
-                </Button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Monitor className="h-5 w-5 text-muted-foreground" />
+                    <Label>Windows Boot</Label>
+                  </div>
+                  {getConfigurationStatus(sessionData.configurations.windowsBoot)}
+                </div>
 
-                <Button variant="outline" className="flex items-center gap-2" onClick={handleReboot}>
-                  <RefreshCcw className="h-4 w-4" />
-                  Reboot Lab
-                </Button>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <RefreshCcw className="h-5 w-5 text-muted-foreground" />
+                    <Label>VM User Cleanup</Label>
+                  </div>
+                  {getConfigurationStatus(sessionData.configurations.userCleanup)}
+                </div>
 
-                <Button
-                  variant={isInternetOn ? "default" : "outline"}
-                  className="flex items-center gap-2"
-                  onClick={handleInternetToggle}
-                >
-                  <Globe className="h-4 w-4" />
-                  {isInternetOn ? "Disable Internet" : "Enable Internet"}
-                </Button>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Home className="h-5 w-5 text-muted-foreground" />
+                    <Label>Home Directories</Label>
+                  </div>
+                  {getConfigurationStatus(sessionData.configurations.homeDirectories)}
+                </div>
 
-                <Button
-                  variant={isDataHandoutActive ? "secondary" : "outline"}
-                  className="flex items-center gap-2"
-                  onClick={handleDataHandout}
-                  disabled={isDataHandoutActive}
-                >
-                  <Database className="h-4 w-4" />
-                  Handout Data
-                </Button>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-5 w-5 text-muted-foreground" />
+                    <Label>Internet Access</Label>
+                  </div>
+                  {getConfigurationStatus(sessionData.configurations.internetAccess)}
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <Tabs defaultValue="controls">
+        <Tabs defaultValue="status">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="controls">Lab Controls</TabsTrigger>
-            <TabsTrigger value="activity">Recent Activity</TabsTrigger>
+            <TabsTrigger value="status">Configuration Details</TabsTrigger>
+            <TabsTrigger value="history">Session History</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="controls" className="space-y-4">
+          <TabsContent value="status" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>System Configuration</CardTitle>
+                <CardTitle>Detailed Configuration Status</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Monitor className="h-5 w-5 text-muted-foreground" />
-                      <Label htmlFor="windows-toggle">Windows Boot</Label>
+                <div className="space-y-6">
+                  <div className="border-l-4 border-blue-500 pl-4">
+                    <h4 className="font-medium mb-2">System Settings</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Windows Boot:</span>
+                        <span className={`ml-2 font-medium ${sessionData.configurations.windowsBoot ? 'text-green-600' : 'text-red-600'}`}>
+                          {sessionData.configurations.windowsBoot ? 'Armed' : 'Disarmed'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">User Cleanup:</span>
+                        <span className={`ml-2 font-medium ${sessionData.configurations.userCleanup ? 'text-green-600' : 'text-red-600'}`}>
+                          {sessionData.configurations.userCleanup ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Home Directories:</span>
+                        <span className={`ml-2 font-medium ${sessionData.configurations.homeDirectories ? 'text-green-600' : 'text-red-600'}`}>
+                          {sessionData.configurations.homeDirectories ? 'Mounted' : 'Unmounted'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Internet Access:</span>
+                        <span className={`ml-2 font-medium ${sessionData.configurations.internetAccess ? 'text-green-600' : 'text-red-600'}`}>
+                          {sessionData.configurations.internetAccess ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
                     </div>
-                    <Switch id="windows-toggle" checked={isWindowsArmed} onCheckedChange={handleWindowsToggle} />
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <RefreshCcw className="h-5 w-5 text-muted-foreground" />
-                      <Label htmlFor="cleanup-toggle">VM User Cleanup</Label>
+                  {sessionData.configurations.dataHandout && (
+                    <div className="border-l-4 border-green-500 pl-4">
+                      <h4 className="font-medium mb-2">Data Distribution</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Course materials have been distributed to all machines
+                      </p>
                     </div>
-                    <Switch
-                      id="cleanup-toggle"
-                      checked={isUserCleanupArmed}
-                      onCheckedChange={handleUserCleanupToggle}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Home className="h-5 w-5 text-muted-foreground" />
-                      <Label htmlFor="homes-toggle">Home Directories</Label>
-                    </div>
-                    <Switch id="homes-toggle" checked={areHomesArmed} onCheckedChange={handleHomesToggle} />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Globe className="h-5 w-5 text-muted-foreground" />
-                      <Label htmlFor="internet-toggle">Internet Access</Label>
-                    </div>
-                    <Switch id="internet-toggle" checked={isInternetOn} onCheckedChange={handleInternetToggle} />
-                  </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="activity">
+          <TabsContent value="history">
             <Card>
               <CardHeader>
-                <CardTitle>Recent Actions</CardTitle>
+                <CardTitle>Recent Sessions</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {recentActions.map((action, index) => (
-                    <div key={index} className="flex justify-between items-center border-b pb-2 last:border-0">
-                      <div>
-                        <p className="font-medium">{action.action}</p>
-                        <p className="text-sm text-muted-foreground">By {action.user}</p>
-                      </div>
-                      <Badge variant="outline">{action.timestamp}</Badge>
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <div>
+                      <p className="font-medium">Computer Science 101</p>
+                      <p className="text-sm text-muted-foreground">Dr. Sarah Johnson - {sessionData.date}</p>
                     </div>
-                  ))}
+                    <Badge className="bg-green-600">Active</Badge>
+                  </div>
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <div>
+                      <p className="font-medium">Mathematics 201</p>
+                      <p className="text-sm text-muted-foreground">Prof. Mike Davis - 2024-08-23</p>
+                    </div>
+                    <Badge className="bg-gray-600">Ended</Badge>
+                  </div>
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <div>
+                      <p className="font-medium">Physics Lab</p>
+                      <p className="text-sm text-muted-foreground">Dr. Lisa Wong - 2024-08-22</p>
+                    </div>
+                    <Badge className="bg-gray-600">Ended</Badge>
+                  </div>
                 </div>
               </CardContent>
             </Card>
