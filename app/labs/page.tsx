@@ -9,7 +9,8 @@ import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface Machine {
@@ -53,6 +54,12 @@ export default function LabsOverview() {
   const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference">("fill-first")
   const [allocations, setAllocations] = useState<StudentAllocation[]>([])
   const [error, setError] = useState("")
+  const [examDate, setExamDate] = useState(new Date().toISOString().split('T')[0])
+  const [examType, setExamType] = useState<"exam" | "test">("exam")
+  const [examName, setExamName] = useState("")
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [importedStudents, setImportedStudents] = useState<string[]>([])
+  const [inputMethod, setInputMethod] = useState<"manual" | "csv">("manual")
 
   // Generate machines for each lab with the corrected TWK naming convention
   const generateMachines = (labId: string, totalMachines: number, machinesUp: number): Machine[] => {
@@ -224,9 +231,41 @@ export default function LabsOverview() {
     fetchLabs()
   }, [])
 
-  const showToast = (title: string, description: string, variant: "default" | "destructive" = "default") => {
-    setError(variant === "destructive" ? `${title}: ${description}` : "")
-    // Clear error after 5 seconds
+  const showSuccessToast = (title: string, description: string) => {
+    // Create a success toast notification
+    const toastDiv = document.createElement('div')
+    toastDiv.className = 'fixed top-4 right-4 bg-green-600 text-white p-4 rounded-lg shadow-lg z-50 max-w-md transform transition-all duration-300 ease-in-out'
+    toastDiv.innerHTML = `
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <div>
+          <div class="font-semibold text-sm">${title}</div>
+          <div class="text-sm opacity-90 mt-1">${description}</div>
+        </div>
+      </div>
+    `
+    document.body.appendChild(toastDiv)
+    
+    // Animate in
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(0)'
+    }, 100)
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(100%)'
+      setTimeout(() => {
+        if (document.body.contains(toastDiv)) {
+          document.body.removeChild(toastDiv)
+        }
+      }, 300)
+    }, 5000)
+  }
+
+  const showErrorToast = (title: string, description: string) => {
+    setError(`${title}: ${description}`)
     setTimeout(() => setError(""), 5000)
   }
 
@@ -266,6 +305,11 @@ export default function LabsOverview() {
     return workingMachines.slice(currentlyBooked)
   }
 
+  const getNextAvailableMachine = (lab: Lab): Machine | null => {
+    const availableMachines = getAvailableMachines(lab)
+    return availableMachines.length > 0 ? availableMachines[0] : null
+  }
+
   const calculateAvailableSeats = (lab: Lab) => {
     return getAvailableMachines(lab).length
   }
@@ -282,19 +326,114 @@ export default function LabsOverview() {
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   }
 
+  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.name.endsWith('.csv')) {
+      showErrorToast("Invalid File Type", "Please upload a CSV file")
+      return
+    }
+
+    setCsvFile(file)
+    
+    try {
+      const text = await file.text()
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+      
+      // Parse CSV - assuming student numbers are in first column
+      const students = lines.map(line => {
+        // Handle comma-separated values, take first column
+        const columns = line.split(',').map(col => col.trim().replace(/"/g, ''))
+        return columns[0]
+      }).filter(student => {
+        // Filter out empty values, headers, and non-numeric entries
+        if (!student || student.length === 0) return false
+        
+        // Skip common header variations (case insensitive)
+        const lowerStudent = student.toLowerCase()
+        const commonHeaders = [
+          'student', 'student number', 'student_number', 'studentnumber', 
+          'id', 'number', 'student id', 'student_id', 'studentid',
+          'reg', 'registration', 'reg_no', 'regno', 'registration_number',
+          'matric', 'matriculation', 'matric_no', 'matricno'
+        ]
+        if (commonHeaders.some(header => lowerStudent.includes(header))) return false
+        
+        // Only accept entries that contain at least one digit (student numbers should be numeric)
+        if (!/\d/.test(student)) return false
+        
+        // Additional check: reject entries that are mostly text (more than 50% letters)
+        const letterCount = (student.match(/[a-zA-Z]/g) || []).length
+        const totalLength = student.length
+        if (letterCount > totalLength * 0.5) return false
+        
+        return true
+      })
+
+      if (students.length === 0) {
+        showErrorToast(
+          "No Valid Student Numbers Found", 
+          "Make sure student numbers are in the first column and contain numeric characters. Headers will be automatically skipped."
+        )
+        return
+      }
+
+      // Sort the students numerically for better organization
+      const sortedStudents = students.sort((a, b) => {
+        // Extract numeric parts for proper sorting
+        const aNum = a.match(/\d+/)?.[0] || a
+        const bNum = b.match(/\d+/)?.[0] || b
+        return aNum.localeCompare(bNum, undefined, { numeric: true })
+      })
+      
+      setImportedStudents(sortedStudents)
+      setStudentNumbers(sortedStudents.join('\n'))
+      
+      showSuccessToast(
+        "CSV Imported Successfully", 
+        `${sortedStudents.length} student numbers imported from ${file.name}`
+      )
+    } catch (error) {
+      showErrorToast("Import Failed", "Error reading CSV file. Please check file format.")
+    }
+  }
+
+  const getCurrentStudentList = (): string[] => {
+    if (inputMethod === "csv" && importedStudents.length > 0) {
+      return importedStudents
+    }
+    return parseStudentNumbers(studentNumbers)
+  }
+
   const generateSeatingPlan = () => {
-    const students = parseStudentNumbers(studentNumbers)
+    // Validate required fields
+    if (!examType) {
+      showErrorToast("Missing Information", "Please select an exam type")
+      return
+    }
+    
+    if (!examDate) {
+      showErrorToast("Missing Information", "Please select an exam date")
+      return
+    }
+    
+    if (!examName.trim()) {
+      showErrorToast("Missing Information", "Please enter an exam/test name")
+      return
+    }
+
+    const students = getCurrentStudentList()
     if (students.length === 0) {
-      showToast("No Students", "Please enter student numbers to allocate", "destructive")
+      showErrorToast("No Students Found", "Please enter student numbers manually or import a CSV file")
       return
     }
 
     const totalAvailable = getTotalAvailableSeats()
     if (students.length > totalAvailable) {
-      showToast(
+      showErrorToast(
         "Insufficient Capacity",
-        `Only ${totalAvailable} seats available across all labs. Cannot allocate ${students.length} students.`,
-        "destructive"
+        `Only ${totalAvailable} seats available across all labs. Cannot allocate ${students.length} students.`
       )
       return
     }
@@ -313,10 +452,9 @@ export default function LabsOverview() {
 
           while (!allocated && attempts < availableLabs.length) {
             const lab = availableLabs[labIndex % availableLabs.length]
-            const availableMachines = getAvailableMachines(lab)
+            const machine = getNextAvailableMachine(lab)
 
-            if (availableMachines.length > 0) {
-              const machine = availableMachines[0]
+            if (machine) {
               machine.assignedStudent = student
 
               newAllocations.push({
@@ -334,6 +472,10 @@ export default function LabsOverview() {
             labIndex++
             attempts++
           }
+
+          if (!allocated) {
+            console.warn(`Could not allocate student ${student} - no available seats`)
+          }
         }
         break
 
@@ -342,9 +484,8 @@ export default function LabsOverview() {
           let allocated = false
 
           for (const lab of updatedLabs) {
-            const availableMachines = getAvailableMachines(lab)
-            if (availableMachines.length > 0) {
-              const machine = availableMachines[0]
+            const machine = getNextAvailableMachine(lab)
+            if (machine) {
               machine.assignedStudent = student
 
               newAllocations.push({
@@ -361,7 +502,10 @@ export default function LabsOverview() {
             }
           }
 
-          if (!allocated) break
+          if (!allocated) {
+            console.warn(`Could not allocate student ${student} - no available seats`)
+            break
+          }
         }
         break
 
@@ -372,9 +516,8 @@ export default function LabsOverview() {
           let allocated = false
 
           for (const lab of sortedLabs) {
-            const availableMachines = getAvailableMachines(lab)
-            if (availableMachines.length > 0) {
-              const machine = availableMachines[0]
+            const machine = getNextAvailableMachine(lab)
+            if (machine) {
               machine.assignedStudent = student
 
               newAllocations.push({
@@ -391,7 +534,10 @@ export default function LabsOverview() {
             }
           }
 
-          if (!allocated) break
+          if (!allocated) {
+            console.warn(`Could not allocate student ${student} - no available seats`)
+            break
+          }
         }
         break
     }
@@ -400,11 +546,12 @@ export default function LabsOverview() {
     setAllocations(newAllocations)
     setError("")
 
-    showToast(
-      "Seating Plan Generated",
-      `Successfully allocated ${newAllocations.length} students across ${
+    // Show success notification
+    showSuccessToast(
+      "Seating Plan Generated Successfully!",
+      `${newAllocations.length} students allocated across ${
         new Set(newAllocations.map((a) => a.labId)).size
-      } labs`
+      } labs. You can now export to PDF.`
     )
   }
 
@@ -421,14 +568,16 @@ export default function LabsOverview() {
     )
     setAllocations([])
     setStudentNumbers("")
+    setCsvFile(null)
+    setImportedStudents([])
     setError("")
 
-    showToast("Allocations Cleared", "All seat allocations have been cleared")
+    showSuccessToast("Allocations Cleared", "All seat allocations have been cleared successfully")
   }
 
   const exportToPDF = () => {
     if (allocations.length === 0) {
-      showToast("No Allocations", "Generate a seating plan first before exporting", "destructive")
+      showErrorToast("No Allocations Found", "Generate a seating plan first before exporting")
       return
     }
 
@@ -464,6 +613,12 @@ export default function LabsOverview() {
               margin: 10px 0;
               font-size: 20px;
               font-weight: normal;
+            }
+            .header h3 {
+              color: #333;
+              margin: 10px 0;
+              font-size: 18px;
+              font-weight: bold;
             }
             .header p {
               margin: 5px 0;
@@ -553,9 +708,14 @@ export default function LabsOverview() {
         <body>
           <div class="header">
             <h1>TW KAMBULE LABORATORIES</h1>
-            <h2>EXAMINATION SEATING PLAN</h2>
-            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-            <p><strong>Time:</strong> ${new Date().toLocaleTimeString()}</p>
+            <h2>${examType.toUpperCase() === 'EXAM' ? 'EXAMINATION' : 'TEST'} SEATING PLAN</h2>
+            ${examName ? `<h3>${examName.toUpperCase()}</h3>` : ''}
+            <p><strong>Date:</strong> ${new Date(examDate).toLocaleDateString('en-GB', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })}</p>
             <p><strong>Total Students:</strong> ${allocations.length} | <strong>Labs Used:</strong> ${new Set(allocations.map((a) => a.labId)).size}</p>
           </div>
 
@@ -600,13 +760,8 @@ export default function LabsOverview() {
           </table>
 
           <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #666;">
-            <p><strong>INSTRUCTIONS:</strong></p>
-            <p>• Students must sit in their assigned seats only</p>
-            <p>• No mobile phones or unauthorized materials allowed</p>
-            <p>• Report any technical issues to the invigilator immediately</p>
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ccc;">
             <p>TW Kambule Laboratories - Computer Lab Management System</p>
-            <p>Generated automatically - Strategy: ${allocationStrategy.charAt(0).toUpperCase() + allocationStrategy.slice(1).replace('-', ' ')}</p>
+            <p>Generated on ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</p>
           </div>
         </body>
       </html>
@@ -629,7 +784,7 @@ export default function LabsOverview() {
       }
     }
 
-    showToast("Export Started", "PDF generation initiated - check your browser's print dialog")
+    showSuccessToast("PDF Export Completed", "Seating plan has been sent to your printer/PDF viewer")
   }
 
   if (isLoading) {
@@ -675,22 +830,160 @@ export default function LabsOverview() {
               Allocate students across all available labs. Total capacity: {getTotalAvailableSeats()} seats
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
+            {/* Required Information Section */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Required Information
+              </h4>
+              
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="examType" className="text-blue-900">
+                    Exam Type <span className="text-red-500">*</span>
+                  </Label>
+                  <Select value={examType} onValueChange={(value: any) => setExamType(value)}>
+                    <SelectTrigger className="border-blue-200">
+                      <SelectValue placeholder="Select exam type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="exam">Examination</SelectItem>
+                      <SelectItem value="test">Test</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="examDate" className="text-blue-900">
+                    Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="examDate"
+                    type="date"
+                    value={examDate}
+                    onChange={(e) => setExamDate(e.target.value)}
+                    className="border-blue-200"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="examName" className="text-blue-900">
+                    Exam/Test Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="examName"
+                    placeholder="e.g., Computer Science Mid-term"
+                    value={examName}
+                    onChange={(e) => setExamName(e.target.value)}
+                    className="border-blue-200"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-4">
+                {/* Student Input Method Selection */}
                 <div>
-                  <Label htmlFor="students">Student Numbers</Label>
-                  <Textarea
-                    id="students"
-                    placeholder="Enter student numbers (one per line or comma-separated)&#10;e.g.:&#10;2024001&#10;2024002&#10;2024003"
-                    value={studentNumbers}
-                    onChange={(e) => setStudentNumbers(e.target.value)}
-                    rows={6}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Students to allocate: {parseStudentNumbers(studentNumbers).length}
-                  </p>
+                  <Label className="text-sm font-medium">Student Numbers Input Method</Label>
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      type="button"
+                      variant={inputMethod === "manual" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setInputMethod("manual")
+                        setImportedStudents([])
+                        setCsvFile(null)
+                      }}
+                      className="flex-1"
+                    >
+                      Manual Entry
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={inputMethod === "csv" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setInputMethod("csv")}
+                      className="flex-1"
+                    >
+                      CSV Import
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Manual Input */}
+                {inputMethod === "manual" && (
+                  <div>
+                    <Label htmlFor="students">Student Numbers <span className="text-red-500">*</span></Label>
+                    <Textarea
+                      id="students"
+                      placeholder="Enter student numbers (one per line or comma-separated)&#10;e.g.:&#10;2024001&#10;2024002&#10;2024003"
+                      value={studentNumbers}
+                      onChange={(e) => setStudentNumbers(e.target.value)}
+                      rows={8}
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Students entered: {parseStudentNumbers(studentNumbers).length}
+                    </p>
+                  </div>
+                )}
+
+                {/* CSV Import */}
+                {inputMethod === "csv" && (
+                  <div className="space-y-3">
+                    <Label htmlFor="csvFile">Upload CSV File <span className="text-red-500">*</span></Label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                      <input
+                        id="csvFile"
+                        type="file"
+                        accept=".csv"
+                        onChange={handleCSVUpload}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="csvFile"
+                        className="cursor-pointer flex flex-col items-center gap-2"
+                      >
+                        <FileText className="h-8 w-8 text-gray-400" />
+                        <span className="text-sm font-medium text-gray-700">
+                          Click to upload CSV file
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          Student numbers should be in the first column
+                        </span>
+                      </label>
+                    </div>
+                    
+                    {csvFile && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-green-800">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span className="text-sm font-medium">{csvFile.name}</span>
+                        </div>
+                        <p className="text-xs text-green-600 mt-1">
+                          {importedStudents.length} student numbers imported
+                        </p>
+                      </div>
+                    )}
+
+                    {importedStudents.length > 0 && (
+                      <div className="max-h-32 overflow-y-auto bg-gray-50 rounded p-3">
+                        <p className="text-xs text-gray-600 mb-2">Preview (first 10):</p>
+                        <div className="text-xs font-mono space-y-1">
+                          {importedStudents.slice(0, 10).map((student, index) => (
+                            <div key={index}>{student}</div>
+                          ))}
+                          {importedStudents.length > 10 && (
+                            <div className="text-gray-500">...and {importedStudents.length - 10} more</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <Label htmlFor="strategy">Allocation Strategy</Label>
@@ -717,19 +1010,23 @@ export default function LabsOverview() {
                     </div>
                     <div className="flex justify-between">
                       <span>Students to Allocate:</span>
-                      <span className="font-medium text-blue-600">{parseStudentNumbers(studentNumbers).length}</span>
+                      <span className="font-medium text-blue-600">{getCurrentStudentList().length}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Remaining Capacity:</span>
                       <span className="font-medium text-gray-600">
-                        {Math.max(0, getTotalAvailableSeats() - parseStudentNumbers(studentNumbers).length)}
+                        {Math.max(0, getTotalAvailableSeats() - getCurrentStudentList().length)}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex gap-2">
-                  <Button onClick={generateSeatingPlan} className="flex-1" disabled={studentNumbers.trim() === ""}>
+                  <Button 
+                    onClick={generateSeatingPlan} 
+                    className="flex-1" 
+                    disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0}
+                  >
                     <UserPlus className="h-4 w-4 mr-2" />
                     Generate Plan
                   </Button>
