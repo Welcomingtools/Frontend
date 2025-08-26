@@ -1,20 +1,49 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, Server, Users, Activity, Calendar, CalendarRange, AlertTriangle, LogOut } from "lucide-react"
 
+type UserSession = {
+  email: string
+  name: string
+  role: string
+  loginTime: string
+  accountType: string
+}
+
 export default function Dashboard() {
   const router = useRouter()
+  const [userSession, setUserSession] = useState<UserSession | null>(null)
+
+  useEffect(() => {
+    // Get user session data
+    if (typeof window !== 'undefined') {
+      const sessionData = sessionStorage.getItem('userSession')
+      if (sessionData) {
+        setUserSession(JSON.parse(sessionData))
+      } else {
+        // No session found, redirect to login
+        router.push('/login')
+      }
+    }
+  }, [router])
 
   const handleLogout = () => {
-    // Add your logout logic here
-    // For example: clear tokens, clear local storage, etc.
-    // localStorage.removeItem('authToken') // Example
+    // Clear session data
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('userSession')
+    }
     
     // Redirect to login page
-    router.push('/login') // Change this to your actual login route
+    router.push('/login')
+  }
+
+  // Show loading state while checking session
+  if (!userSession) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
 
   return (
@@ -24,6 +53,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-2xl font-bold">MSS Welcoming Tools</h1>
             <p className="text-sm opacity-80">University of the Witwatersrand</p>
+            <p className="text-xs opacity-60">Welcome, {userSession.name} ({userSession.role})</p>
           </div>
           <Button 
             variant="ghost" 
@@ -137,23 +167,26 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="bg-card rounded-lg border shadow-sm p-6">
-              <div className="flex items-center gap-4">
-                <Users className="h-8 w-8 text-[#0f4d92]" />
-                <div>
-                  <h3 className="font-semibold">Team Management</h3>
-                  <p className="text-sm text-muted-foreground">Manage TLA access and permissions</p>
+            {/* ROLE-BASED ACCESS: Only show Team Management for Admin and TLA */}
+            {userSession.role !== "BCDR" && (
+              <div className="bg-card rounded-lg border shadow-sm p-6">
+                <div className="flex items-center gap-4">
+                  <Users className="h-8 w-8 text-[#0f4d92]" />
+                  <div>
+                    <h3 className="font-semibold">Team Management</h3>
+                    <p className="text-sm text-muted-foreground">Manage TLA access and permissions</p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Link href="/team">
+                    <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                      Manage Team
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </Link>
                 </div>
               </div>
-              <div className="mt-4">
-                <Link href="/team">
-                  <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
-                    Manage Team
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="rounded-lg border bg-card p-6">

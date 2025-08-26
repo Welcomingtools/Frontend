@@ -9,9 +9,12 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, Eye, EyeOff, User, Lock, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { signInWithEmailAndPassword } from "firebase/auth"
+import { auth, db } from "@/firebase/clientApp.js"
+import { doc, getDoc } from "firebase/firestore"
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -23,20 +26,75 @@ export default function LoginPage() {
     setIsLoading(true)
     setError("")
 
-    // Simulate authentication - in a real app, this would call an API
     try {
-      // Mock authentication
-      if (username === "demo" && password === "password") {
-        // Successful login
-        setTimeout(() => {
-          router.push("/dashboard")
-        }, 1000)
-      } else {
-        setError("Invalid username or password")
-        setIsLoading(false)
+      // First try to find user in teamMembers collection (for TLA, BCDR, etc.)
+      const memberDocId = email.toLowerCase()
+      const memberRef = doc(db, "teamMembers", memberDocId)
+      const memberDoc = await getDoc(memberRef)
+
+      if (memberDoc.exists()) {
+        // User found in teamMembers collection
+        const memberData = memberDoc.data()
+
+        // Check if member is active
+        if (memberData.status !== "Active") {
+          setError("Account is inactive. Please contact an administrator.")
+          setIsLoading(false)
+          return
+        }
+
+        // Check if password matches
+        if (memberData.password !== password) {
+          setError("Invalid email or password")
+          setIsLoading(false)
+          return
+        }
+
+        // Team member login successful
+        if (typeof window !== 'undefined') {
+          const userSession = {
+            email: memberData.email,
+            name: memberData.name,
+            role: memberData.role,
+            loginTime: new Date().toISOString(),
+            accountType: "team_member"
+          }
+          sessionStorage.setItem('userSession', JSON.stringify(userSession))
+        }
+
+        router.push("/dashboard")
+        return
       }
-    } catch (err) {
-      setError("An error occurred during login")
+
+      // User not found in teamMembers, try Firebase Auth (for Admin accounts)
+      try {
+        const adminCredential = await signInWithEmailAndPassword(auth, email, password)
+        
+        // Admin login successful
+        if (typeof window !== 'undefined') {
+          const userSession = {
+            email: adminCredential.user.email,
+            name: "Administrator", // You can customize this
+            role: "Admin",
+            loginTime: new Date().toISOString(),
+            accountType: "firebase_admin"
+          }
+          sessionStorage.setItem('userSession', JSON.stringify(userSession))
+        }
+
+        router.push("/dashboard")
+        return
+        
+      } catch (authError) {
+        // Neither teamMember nor Firebase Auth worked
+        setError("Invalid email or password")
+        setIsLoading(false)
+        return
+      }
+      
+    } catch (err: any) {
+      console.error("Login error:", err)
+      setError("An error occurred during login. Please try again.")
       setIsLoading(false)
     }
   }
@@ -82,17 +140,17 @@ export default function LoginPage() {
           
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-sm font-medium text-gray-700">
-                Username
+              <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                Email
               </Label>
               <div className="relative group">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 group-focus-within:text-[#0f4d92] transition-colors" />
                 <Input
-                  id="username"
-                  type="text"
-                  placeholder="Enter your Wits username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="pl-10 h-12 border-gray-200 focus:border-[#0f4d92] focus:ring-[#0f4d92] transition-colors"
                   required
                 />
@@ -139,33 +197,7 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
-          
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-gray-200" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-gray-500">Demo Access</span>
-            </div>
-          </div>
         </CardContent>
-        
-        <CardFooter className="flex flex-col space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 w-full">
-            <p className="text-sm text-blue-800 font-medium mb-1">Demo Credentials</p>
-            <p className="text-xs text-blue-600">
-              Username: <span className="font-mono bg-blue-100 px-1 rounded">demo</span>
-              <br />
-              Password: <span className="font-mono bg-blue-100 px-1 rounded">password</span>
-            </p>
-          </div>
-          
-          <div className="flex items-center justify-center space-x-4 text-xs text-gray-500">
-            <span>University of the Witwatersrand</span>
-            <span>•</span>
-            <span>Secure Access</span>
-          </div>
-        </CardFooter>
       </Card>
     </div>
   )
