@@ -1,11 +1,21 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { db } from "@/firebase/clientApp"
+import {
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+} from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, UserPlus, Edit, Trash2 } from "lucide-react"
+import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
@@ -19,81 +29,255 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Mock team data
-const initialTeamData = [
-  { id: 1, name: "John Doe", email: "john.doe@wits.ac.za", role: "Admin", status: "Active" },
-  { id: 2, name: "Jane Smith", email: "jane.smith@wits.ac.za", role: "TLA", status: "Active" },
-  { id: 3, name: "Mike Johnson", email: "mike.johnson@wits.ac.za", role: "TLA", status: "Active" },
-  { id: 4, name: "Sarah Williams", email: "sarah.williams@wits.ac.za", role: "TLA", status: "Inactive" },
-  { id: 5, name: "David Brown", email: "david.brown@wits.ac.za", role: "TLA", status: "Active" },
-]
+type Member = {
+  id: string
+  name: string
+  email: string
+  role: string
+  status: "Active" | "Inactive"
+  password: string
+}
+
+type UserSession = {
+  email: string
+  name: string
+  role: string
+  loginTime: string
+  accountType: string
+}
+
+// Utility function to generate random password
+function generateRandomPassword(length = 8) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  let password = ""
+  for (let i = 0; i < length; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return password
+}
 
 export default function TeamPage() {
-  const [teamData, setTeamData] = useState(initialTeamData)
+  const router = useRouter()
+  const [userSession, setUserSession] = useState<UserSession | null>(null)
+  const [isAuthorized, setIsAuthorized] = useState(false)
+  const [teamData, setTeamData] = useState<Member[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [newMember, setNewMember] = useState({ name: "", email: "", role: "TLA" })
-  const [editMember, setEditMember] = useState<null | { id: number; name: string; email: string; role: string }>(null)
+  const [editMember, setEditMember] = useState<Member | null>(null)
 
-  const handleAddMember = () => {
-    if (newMember.name && newMember.email) {
-      setTeamData([
-        ...teamData,
-        {
-          id: teamData.length + 1,
-          name: newMember.name,
-          email: newMember.email,
-          role: newMember.role,
-          status: "Active",
-        },
-      ])
+  // Check user authorization
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sessionData = sessionStorage.getItem('userSession')
+      if (!sessionData) {
+        // No session, redirect to login
+        router.push('/login')
+        return
+      }
+
+      const session: UserSession = JSON.parse(sessionData)
+      setUserSession(session)
+
+      // Check if user has access to team management
+      if (session.role === "BCDR") {
+        setIsAuthorized(false)
+      } else {
+        setIsAuthorized(true)
+      }
+    }
+  }, [router])
+
+  // Fetch members from Firestore (only if authorized)
+  useEffect(() => {
+    if (!isAuthorized) return
+
+    const fetchMembers = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "teamMembers"))
+        const members = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Member[]
+        setTeamData(members)
+      } catch (error) {
+        console.error("Error fetching members:", error)
+      }
+    }
+
+    fetchMembers()
+  }, [isAuthorized])
+
+  // Add new member
+  const handleAddMember = async () => {
+    if (!newMember.name || !newMember.email) return
+
+    const id = newMember.email.toLowerCase()
+    const memberRef = doc(db, "teamMembers", id)
+
+    // Generate random password
+    const password = generateRandomPassword()
+
+    try {
+      await setDoc(memberRef, {
+        ...newMember,
+        status: "Active",
+        password,
+      })
+
+      setTeamData([...teamData, { id, ...newMember, status: "Active", password }])
       setNewMember({ name: "", email: "", role: "TLA" })
       setIsAddDialogOpen(false)
+
+      // Show password to admin (they can send it manually)
+      console.log("Member added successfully! Temporary password:", password)
+      alert(`Temporary password for ${newMember.name}: ${password}`)
+    } catch (err) {
+      console.error("Error adding member:", err)
     }
   }
 
-  const handleEditMember = () => {
-    if (editMember) {
-      setTeamData(teamData.map((member) => (member.id === editMember.id ? { ...member, ...editMember } : member)))
+  // Edit existing member
+  const handleEditMember = async () => {
+    if (!editMember) return
+
+    const memberRef = doc(db, "teamMembers", editMember.id)
+
+    try {
+      await updateDoc(memberRef, {
+        name: editMember.name,
+        email: editMember.email,
+        role: editMember.role,
+      })
+      setTeamData(teamData.map(m => (m.id === editMember.id ? editMember : m)))
       setEditMember(null)
+    } catch (err) {
+      console.error("Error editing member:", err)
     }
   }
 
-  const handleDeleteMember = (id: number) => {
-    setTeamData(teamData.filter((member) => member.id !== id))
+  // Delete member
+  const handleDeleteMember = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "teamMembers", id))
+      setTeamData(teamData.filter(member => member.id !== id))
+    } catch (err) {
+      console.error("Error deleting member:", err)
+    }
   }
 
-  const handleStatusToggle = (id: number) => {
-    setTeamData(
-      teamData.map((member) =>
-        member.id === id ? { ...member, status: member.status === "Active" ? "Inactive" : "Active" } : member,
-      ),
+  // Toggle Active / Inactive
+  const handleStatusToggle = async (id: string) => {
+    const member = teamData.find(m => m.id === id)
+    if (!member) return
+
+    const newStatus = member.status === "Active" ? "Inactive" : "Active"
+    try {
+      await updateDoc(doc(db, "teamMembers", id), { status: newStatus })
+      setTeamData(teamData.map(m => (m.id === id ? { ...m, status: newStatus } : m)))
+    } catch (err) {
+      console.error("Error updating status:", err)
+    }
+  }
+
+  // Show loading state while checking authorization
+  if (userSession === null) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f4d92] mx-auto mb-4"></div>
+          <p>Checking permissions...</p>
+        </div>
+      </div>
     )
   }
 
+  // Show access denied for BCDR users
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <header className="bg-[#0f4d92] text-white p-4">
+          <div className="container mx-auto flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" asChild className="text-white">
+                <Link href="/dashboard">
+                  <ArrowLeft className="h-5 w-5" />
+                </Link>
+              </Button>
+              <h1 className="text-xl font-bold">Access Denied</h1>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 container mx-auto p-4 flex items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardHeader className="text-center">
+              <div className="mx-auto mb-4 w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <Shield className="h-6 w-6 text-red-600" />
+              </div>
+              <CardTitle className="text-2xl">Access Restricted</CardTitle>
+            </CardHeader>
+            <CardContent className="text-center space-y-4">
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  BCDR members do not have access to Team Management functionality.
+                </AlertDescription>
+              </Alert>
+              
+              <p className="text-muted-foreground">
+                Your current role is <Badge variant="outline">{userSession?.role}</Badge>. 
+                Only Admin and TLA members can access team management features.
+              </p>
+              
+              <p className="text-sm text-muted-foreground">
+                If you believe this is an error, please contact your administrator.
+              </p>
+
+              <div className="pt-4">
+                <Button asChild className="w-full">
+                  <Link href="/dashboard">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Return to Dashboard
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    )
+  }
+
+  // Show team management page for authorized users
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/">
+              <Link href="/dashboard">
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
-            <h1 className="text-xl font-bold">Team Management</h1>
+            <div>
+              <h1 className="text-xl font-bold">Team Management</h1>
+              <p className="text-xs opacity-75">Logged in as: {userSession?.name} ({userSession?.role})</p>
+            </div>
           </div>
+
+          {/* Add Member Dialog */}
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
-                <UserPlus className="h-4 w-4 mr-2" />
-                Add Member
+                <UserPlus className="h-4 w-4 mr-2" /> Add Member
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add Team Member</DialogTitle>
-                <DialogDescription>Add a new Technical Laboratory Assistant to the team.</DialogDescription>
+                <DialogDescription>Add a new member to the team.</DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
@@ -101,7 +285,7 @@ export default function TeamPage() {
                   <Input
                     id="name"
                     value={newMember.name}
-                    onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                    onChange={e => setNewMember({ ...newMember, name: e.target.value })}
                     placeholder="Enter full name"
                   />
                 </div>
@@ -111,27 +295,26 @@ export default function TeamPage() {
                     id="email"
                     type="email"
                     value={newMember.email}
-                    onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                    placeholder="Enter Wits email address"
+                    onChange={e => setNewMember({ ...newMember, email: e.target.value })}
+                    placeholder="Enter email address"
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="role">Role</Label>
-                  <Select value={newMember.role} onValueChange={(value) => setNewMember({ ...newMember, role: value })}>
+                  <Select value={newMember.role} onValueChange={value => setNewMember({ ...newMember, role: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Admin">Admin</SelectItem>
                       <SelectItem value="TLA">TLA</SelectItem>
+                      <SelectItem value="BCDR">BCDR</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
                 <Button onClick={handleAddMember}>Add Member</Button>
               </DialogFooter>
             </DialogContent>
@@ -146,16 +329,13 @@ export default function TeamPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {teamData.map((member) => (
+              {teamData.map(member => (
                 <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
                   <div className="flex items-center gap-4">
                     <Avatar>
                       <AvatarImage src={`/placeholder.svg?height=40&width=40`} />
                       <AvatarFallback>
-                        {member.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
+                        {member.name.split(" ").map(n => n[0]).join("")}
                       </AvatarFallback>
                     </Avatar>
                     <div>
@@ -163,16 +343,16 @@ export default function TeamPage() {
                       <p className="text-sm text-muted-foreground">{member.email}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="outline">{member.role}</Badge>
-                        <Badge
-                          variant={member.status === "Active" ? "default" : "secondary"}
-                          className={member.status === "Active" ? "bg-green-600" : ""}
-                        >
+                        <Badge variant={member.status === "Active" ? "default" : "secondary"}>
                           {member.status}
                         </Badge>
                       </div>
                     </div>
                   </div>
+
+                  {/* Actions */}
                   <div className="flex items-center gap-2">
+                    {/* Edit */}
                     <Dialog>
                       <DialogTrigger asChild>
                         <Button variant="ghost" size="icon" onClick={() => setEditMember(member)}>
@@ -191,7 +371,7 @@ export default function TeamPage() {
                               <Input
                                 id="edit-name"
                                 value={editMember.name}
-                                onChange={(e) => setEditMember({ ...editMember, name: e.target.value })}
+                                onChange={e => setEditMember({ ...editMember, name: e.target.value })}
                               />
                             </div>
                             <div className="grid gap-2">
@@ -200,14 +380,14 @@ export default function TeamPage() {
                                 id="edit-email"
                                 type="email"
                                 value={editMember.email}
-                                onChange={(e) => setEditMember({ ...editMember, email: e.target.value })}
+                                onChange={e => setEditMember({ ...editMember, email: e.target.value })}
                               />
                             </div>
                             <div className="grid gap-2">
                               <Label htmlFor="edit-role">Role</Label>
                               <Select
                                 value={editMember.role}
-                                onValueChange={(value) => setEditMember({ ...editMember, role: value })}
+                                onValueChange={value => setEditMember({ ...editMember, role: value })}
                               >
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select role" />
@@ -215,33 +395,28 @@ export default function TeamPage() {
                                 <SelectContent>
                                   <SelectItem value="Admin">Admin</SelectItem>
                                   <SelectItem value="TLA">TLA</SelectItem>
+                                  <SelectItem value="BCDR">BCDR</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
                         )}
                         <DialogFooter>
-                          <Button variant="outline" onClick={() => setEditMember(null)}>
-                            Cancel
-                          </Button>
+                          <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
                           <Button onClick={handleEditMember}>Save Changes</Button>
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+
+                    {/* Toggle Status */}
                     <Button variant="ghost" size="icon" onClick={() => handleStatusToggle(member.id)}>
-                      <Badge
-                        variant={member.status === "Active" ? "destructive" : "default"}
-                        className={member.status !== "Active" ? "bg-green-600" : ""}
-                      >
+                      <Badge variant={member.status === "Active" ? "destructive" : "default"}>
                         {member.status === "Active" ? "Deactivate" : "Activate"}
                       </Badge>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive"
-                      onClick={() => handleDeleteMember(member.id)}
-                    >
+
+                    {/* Delete */}
+                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteMember(member.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
