@@ -1,3 +1,4 @@
+// LabsOverview.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -9,8 +10,22 @@ import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+
+// Tooltip component
+const Tooltip = ({ children, content }: { children: React.ReactNode; content: string }) => {
+  return (
+    <div className="relative group">
+      {children}
+      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-10 pointer-events-none">
+        {content}
+        <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800"></div>
+      </div>
+    </div>
+  )
+}
 
 interface Machine {
   id: string // e.g., "TWK-005-01-01"
@@ -53,6 +68,12 @@ export default function LabsOverview() {
   const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference">("fill-first")
   const [allocations, setAllocations] = useState<StudentAllocation[]>([])
   const [error, setError] = useState("")
+  const [examDate, setExamDate] = useState(new Date().toISOString().split('T')[0])
+  const [examType, setExamType] = useState<"exam" | "test">("exam")
+  const [examName, setExamName] = useState("")
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [importedStudents, setImportedStudents] = useState<string[]>([])
+  const [inputMethod, setInputMethod] = useState<"manual" | "csv">("manual")
 
   // Generate machines for each lab with the corrected TWK naming convention
   const generateMachines = (labId: string, totalMachines: number, machinesUp: number): Machine[] => {
@@ -129,6 +150,14 @@ export default function LabsOverview() {
     return machines
   }
 
+  // Generate random machines up (85-100% of total)
+  const getRandomMachinesUp = (total: number): number => {
+    const minPercentage = 85
+    const maxPercentage = 100
+    const percentage = Math.floor(Math.random() * (maxPercentage - minPercentage + 1)) + minPercentage
+    return Math.floor((percentage / 100) * total)
+  }
+
   useEffect(() => {
     const fetchLabs = async () => {
       const mockLabs: Lab[] = [
@@ -136,85 +165,79 @@ export default function LabsOverview() {
           id: "004",
           name: "Lab 004",
           totalMachines: 100,
-          machinesUp: 95,
-          machinesDown: 5,
+          machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
           status: "Available",
-          machines: generateMachines("004", 100, 95),
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "005",
           name: "Lab 005",
           totalMachines: 100,
-          machinesUp: 85,
-          machinesDown: 15,
-          status: "In Use",
-          currentBooking: {
-            course: "Computer Science 101",
-            instructor: "Dr. Sarah Johnson",
-            time: "09:00 AM - 11:00 AM",
-            studentsBooked: 30,
-          },
-          machines: generateMachines("005", 100, 85),
+          machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "006",
           name: "Lab 006",
           totalMachines: 100,
-          machinesUp: 0,
-          machinesDown: 100,
-          status: "Maintenance",
-          machines: generateMachines("006", 100, 0),
+          machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "108",
           name: "Lab 108",
           totalMachines: 50,
-          machinesUp: 48,
-          machinesDown: 2,
+          machinesUp: getRandomMachinesUp(50),
+          machinesDown: 0,
           status: "Available",
-          machines: generateMachines("108", 50, 48),
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "109",
           name: "Lab 109",
           totalMachines: 50,
-          machinesUp: 45,
-          machinesDown: 5,
-          status: "In Use",
-          currentBooking: {
-            course: "Data Structures",
-            instructor: "Prof. Mike Chen",
-            time: "14:00 PM - 16:00 PM",
-            studentsBooked: 20,
-          },
-          machines: generateMachines("109", 50, 45),
+          machinesUp: getRandomMachinesUp(50),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "110",
           name: "Lab 110",
           totalMachines: 50,
-          machinesUp: 50,
+          machinesUp: getRandomMachinesUp(50),
           machinesDown: 0,
           status: "Available",
-          machines: generateMachines("110", 50, 50),
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "111",
           name: "Lab 111",
           totalMachines: 50,
-          machinesUp: 47,
-          machinesDown: 3,
+          machinesUp: getRandomMachinesUp(50),
+          machinesDown: 0,
           status: "Available",
-          machines: generateMachines("111", 50, 47),
+          machines: [],
           allocatedStudents: [],
         },
       ]
+
+      // Generate machines after calculating machinesUp and set machinesDown
+      mockLabs.forEach(lab => {
+        lab.machines = generateMachines(lab.id, lab.totalMachines, lab.machinesUp)
+        lab.machinesDown = lab.totalMachines - lab.machinesUp
+      })
 
       await new Promise((resolve) => setTimeout(resolve, 1000))
       setLabs(mockLabs)
@@ -224,9 +247,41 @@ export default function LabsOverview() {
     fetchLabs()
   }, [])
 
-  const showToast = (title: string, description: string, variant: "default" | "destructive" = "default") => {
-    setError(variant === "destructive" ? `${title}: ${description}` : "")
-    // Clear error after 5 seconds
+  const showSuccessToast = (title: string, description: string) => {
+    // Create a success toast notification
+    const toastDiv = document.createElement('div')
+    toastDiv.className = 'fixed top-4 right-4 bg-green-600 text-white p-4 rounded-lg shadow-lg z-50 max-w-md transform transition-all duration-300 ease-in-out'
+    toastDiv.innerHTML = `
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <div>
+          <div class="font-semibold text-sm">${title}</div>
+          <div class="text-sm opacity-90 mt-1">${description}</div>
+        </div>
+      </div>
+    `
+    document.body.appendChild(toastDiv)
+    
+    // Animate in
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(0)'
+    }, 100)
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(100%)'
+      setTimeout(() => {
+        if (document.body.contains(toastDiv)) {
+          document.body.removeChild(toastDiv)
+        }
+      }, 300)
+    }, 5000)
+  }
+
+  const showErrorToast = (title: string, description: string) => {
+    setError(`${title}: ${description}`)
     setTimeout(() => setError(""), 5000)
   }
 
@@ -266,6 +321,11 @@ export default function LabsOverview() {
     return workingMachines.slice(currentlyBooked)
   }
 
+  const getNextAvailableMachine = (lab: Lab): Machine | null => {
+    const availableMachines = getAvailableMachines(lab)
+    return availableMachines.length > 0 ? availableMachines[0] : null
+  }
+
   const calculateAvailableSeats = (lab: Lab) => {
     return getAvailableMachines(lab).length
   }
@@ -282,19 +342,114 @@ export default function LabsOverview() {
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   }
 
+  const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.name.endsWith('.csv')) {
+      showErrorToast("Invalid File Type", "Please upload a CSV file")
+      return
+    }
+
+    setCsvFile(file)
+    
+    try {
+      const text = await file.text()
+      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+      
+      // Parse CSV - assuming student numbers are in first column
+      const students = lines.map(line => {
+        // Handle comma-separated values, take first column
+        const columns = line.split(',').map(col => col.trim().replace(/"/g, ''))
+        return columns[0]
+      }).filter(student => {
+        // Filter out empty values, headers, and non-numeric entries
+        if (!student || student.length === 0) return false
+        
+        // Skip common header variations (case insensitive)
+        const lowerStudent = student.toLowerCase()
+        const commonHeaders = [
+          'student', 'student number', 'student_number', 'studentnumber', 
+          'id', 'number', 'student id', 'student_id', 'studentid',
+          'reg', 'registration', 'reg_no', 'regno', 'registration_number',
+          'matric', 'matriculation', 'matric_no', 'matricno'
+        ]
+        if (commonHeaders.some(header => lowerStudent.includes(header))) return false
+        
+        // Only accept entries that contain at least one digit (student numbers should be numeric)
+        if (!/\d/.test(student)) return false
+        
+        // Additional check: reject entries that are mostly text (more than 50% letters)
+        const letterCount = (student.match(/[a-zA-Z]/g) || []).length
+        const totalLength = student.length
+        if (letterCount > totalLength * 0.5) return false
+        
+        return true
+      })
+
+      if (students.length === 0) {
+        showErrorToast(
+          "No Valid Student Numbers Found", 
+          "Make sure student numbers are in the first column and contain numeric characters. Headers will be automatically skipped."
+        )
+        return
+      }
+
+      // Sort the students numerically for better organization
+      const sortedStudents = students.sort((a, b) => {
+        // Extract numeric parts for proper sorting
+        const aNum = a.match(/\d+/)?.[0] || a
+        const bNum = b.match(/\d+/)?.[0] || b
+        return aNum.localeCompare(bNum, undefined, { numeric: true })
+      })
+      
+      setImportedStudents(sortedStudents)
+      setStudentNumbers(sortedStudents.join('\n'))
+      
+      showSuccessToast(
+        "CSV Imported Successfully", 
+        `${sortedStudents.length} student numbers imported from ${file.name}`
+      )
+    } catch (error) {
+      showErrorToast("Import Failed", "Error reading CSV file. Please check file format.")
+    }
+  }
+
+  const getCurrentStudentList = (): string[] => {
+    if (inputMethod === "csv" && importedStudents.length > 0) {
+      return importedStudents
+    }
+    return parseStudentNumbers(studentNumbers)
+  }
+
   const generateSeatingPlan = () => {
-    const students = parseStudentNumbers(studentNumbers)
+    // Validate required fields
+    if (!examType) {
+      showErrorToast("Missing Information", "Please select an exam type")
+      return
+    }
+    
+    if (!examDate) {
+      showErrorToast("Missing Information", "Please select an exam date")
+      return
+    }
+    
+    if (!examName.trim()) {
+      showErrorToast("Missing Information", "Please enter an exam/test name")
+      return
+    }
+
+    const students = getCurrentStudentList()
     if (students.length === 0) {
-      showToast("No Students", "Please enter student numbers to allocate", "destructive")
+      showErrorToast("No Students Found", "Please enter student numbers manually or import a CSV file")
       return
     }
 
     const totalAvailable = getTotalAvailableSeats()
     if (students.length > totalAvailable) {
-      showToast(
+      showErrorToast(
         "Insufficient Capacity",
-        `Only ${totalAvailable} seats available across all labs. Cannot allocate ${students.length} students.`,
-        "destructive"
+        `Only ${totalAvailable} seats available across all labs. Cannot allocate ${students.length} students.`
       )
       return
     }
@@ -313,10 +468,9 @@ export default function LabsOverview() {
 
           while (!allocated && attempts < availableLabs.length) {
             const lab = availableLabs[labIndex % availableLabs.length]
-            const availableMachines = getAvailableMachines(lab)
+            const machine = getNextAvailableMachine(lab)
 
-            if (availableMachines.length > 0) {
-              const machine = availableMachines[0]
+            if (machine) {
               machine.assignedStudent = student
 
               newAllocations.push({
@@ -334,6 +488,10 @@ export default function LabsOverview() {
             labIndex++
             attempts++
           }
+
+          if (!allocated) {
+            console.warn(`Could not allocate student ${student} - no available seats`)
+          }
         }
         break
 
@@ -342,9 +500,8 @@ export default function LabsOverview() {
           let allocated = false
 
           for (const lab of updatedLabs) {
-            const availableMachines = getAvailableMachines(lab)
-            if (availableMachines.length > 0) {
-              const machine = availableMachines[0]
+            const machine = getNextAvailableMachine(lab)
+            if (machine) {
               machine.assignedStudent = student
 
               newAllocations.push({
@@ -361,7 +518,10 @@ export default function LabsOverview() {
             }
           }
 
-          if (!allocated) break
+          if (!allocated) {
+            console.warn(`Could not allocate student ${student} - no available seats`)
+            break
+          }
         }
         break
 
@@ -372,9 +532,8 @@ export default function LabsOverview() {
           let allocated = false
 
           for (const lab of sortedLabs) {
-            const availableMachines = getAvailableMachines(lab)
-            if (availableMachines.length > 0) {
-              const machine = availableMachines[0]
+            const machine = getNextAvailableMachine(lab)
+            if (machine) {
               machine.assignedStudent = student
 
               newAllocations.push({
@@ -391,7 +550,10 @@ export default function LabsOverview() {
             }
           }
 
-          if (!allocated) break
+          if (!allocated) {
+            console.warn(`Could not allocate student ${student} - no available seats`)
+            break
+          }
         }
         break
     }
@@ -400,11 +562,12 @@ export default function LabsOverview() {
     setAllocations(newAllocations)
     setError("")
 
-    showToast(
-      "Seating Plan Generated",
-      `Successfully allocated ${newAllocations.length} students across ${
+    // Show success notification
+    showSuccessToast(
+      "Seating Plan Generated Successfully!",
+      `${newAllocations.length} students allocated across ${
         new Set(newAllocations.map((a) => a.labId)).size
-      } labs`
+      } labs. You can now export to PDF.`
     )
   }
 
@@ -421,14 +584,16 @@ export default function LabsOverview() {
     )
     setAllocations([])
     setStudentNumbers("")
+    setCsvFile(null)
+    setImportedStudents([])
     setError("")
 
-    showToast("Allocations Cleared", "All seat allocations have been cleared")
+    showSuccessToast("Allocations Cleared", "All seat allocations have been cleared successfully")
   }
 
   const exportToPDF = () => {
     if (allocations.length === 0) {
-      showToast("No Allocations", "Generate a seating plan first before exporting", "destructive")
+      showErrorToast("No Allocations Found", "Generate a seating plan first before exporting")
       return
     }
 
@@ -464,6 +629,12 @@ export default function LabsOverview() {
               margin: 10px 0;
               font-size: 20px;
               font-weight: normal;
+            }
+            .header h3 {
+              color: #333;
+              margin: 10px 0;
+              font-size: 18px;
+              font-weight: bold;
             }
             .header p {
               margin: 5px 0;
@@ -553,9 +724,14 @@ export default function LabsOverview() {
         <body>
           <div class="header">
             <h1>TW KAMBULE LABORATORIES</h1>
-            <h2>EXAMINATION SEATING PLAN</h2>
-            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-            <p><strong>Time:</strong> ${new Date().toLocaleTimeString()}</p>
+            <h2>${examType.toUpperCase() === 'EXAM' ? 'EXAMINATION' : 'TEST'} SEATING PLAN</h2>
+            ${examName ? `<h3>${examName.toUpperCase()}</h3>` : ''}
+            <p><strong>Date:</strong> ${new Date(examDate).toLocaleDateString('en-GB', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })}</p>
             <p><strong>Total Students:</strong> ${allocations.length} | <strong>Labs Used:</strong> ${new Set(allocations.map((a) => a.labId)).size}</p>
           </div>
 
@@ -600,13 +776,8 @@ export default function LabsOverview() {
           </table>
 
           <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #666;">
-            <p><strong>INSTRUCTIONS:</strong></p>
-            <p>• Students must sit in their assigned seats only</p>
-            <p>• No mobile phones or unauthorized materials allowed</p>
-            <p>• Report any technical issues to the invigilator immediately</p>
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ccc;">
             <p>TW Kambule Laboratories - Computer Lab Management System</p>
-            <p>Generated automatically - Strategy: ${allocationStrategy.charAt(0).toUpperCase() + allocationStrategy.slice(1).replace('-', ' ')}</p>
+            <p>Generated on ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</p>
           </div>
         </body>
       </html>
@@ -629,7 +800,7 @@ export default function LabsOverview() {
       }
     }
 
-    showToast("Export Started", "PDF generation initiated - check your browser's print dialog")
+    showSuccessToast("PDF Export Completed", "Seating plan has been sent to your printer/PDF viewer")
   }
 
   if (isLoading) {
@@ -637,7 +808,13 @@ export default function LabsOverview() {
       <div className="min-h-screen bg-gray-50">
         <header className="bg-[#1e40af] text-white p-4">
           <div className="container mx-auto flex items-center gap-4">
+          <Link 
+            href="/dashboard"
+            className="cursor-pointer hover:bg-blue-600 p-1 rounded"
+            title="Go to dashboard"
+          >
             <ArrowLeft className="h-6 w-6" />
+          </Link>
             <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
           </div>
         </header>
@@ -652,7 +829,13 @@ export default function LabsOverview() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-[#1e40af] text-white p-4">
         <div className="container mx-auto flex items-center gap-4">
-          <ArrowLeft className="h-6 w-6" />
+          <Link 
+            href="/dashboard"
+            className="cursor-pointer hover:bg-blue-600 p-1 rounded"
+            title="Go to dashboard"
+          >
+            <ArrowLeft className="h-6 w-6" />
+          </Link>
           <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
         </div>
       </header>
@@ -675,35 +858,181 @@ export default function LabsOverview() {
               Allocate students across all available labs. Total capacity: {getTotalAvailableSeats()} seats
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-4">
+          <CardContent className="space-y-6">
+            {/* Required Information Section */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Required Information
+              </h4>
+              
+              <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="students">Student Numbers</Label>
-                  <Textarea
-                    id="students"
-                    placeholder="Enter student numbers (one per line or comma-separated)&#10;e.g.:&#10;2024001&#10;2024002&#10;2024003"
-                    value={studentNumbers}
-                    onChange={(e) => setStudentNumbers(e.target.value)}
-                    rows={6}
+                  <Label htmlFor="examType" className="text-blue-900">
+                    Exam Type <span className="text-red-500">*</span>
+                  </Label>
+                  <Select value={examType} onValueChange={(value: any) => setExamType(value)}>
+                    <SelectTrigger className="border-blue-200">
+                      <SelectValue placeholder="Select exam type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="exam">Examination</SelectItem>
+                      <SelectItem value="test">Test</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="examDate" className="text-blue-900">
+                    Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="examDate"
+                    type="date"
+                    value={examDate}
+                    onChange={(e) => setExamDate(e.target.value)}
+                    className="border-blue-200"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Students to allocate: {parseStudentNumbers(studentNumbers).length}
-                  </p>
                 </div>
 
                 <div>
+                  <Label htmlFor="examName" className="text-blue-900">
+                    Exam/Test Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="examName"
+                    placeholder="e.g., Computer Science Mid-term"
+                    value={examName}
+                    onChange={(e) => setExamName(e.target.value)}
+                    className="border-blue-200"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                {/* Student Input Method Selection */}
+                <div>
+                  <Label className="text-sm font-medium">Student Numbers Input Method</Label>
+                  <div className="flex gap-2 mt-2">
+                    <Tooltip content="Type student numbers manually in the text area">
+                      <Button
+                        type="button"
+                        variant={inputMethod === "manual" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          setInputMethod("manual")
+                          setImportedStudents([])
+                          setCsvFile(null)
+                        }}
+                        className="flex-1"
+                      >
+                        Manual Entry
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="Upload a CSV file containing student numbers">
+                      <Button
+                        type="button"
+                        variant={inputMethod === "csv" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setInputMethod("csv")}
+                        className="flex-1"
+                      >
+                        CSV Import
+                      </Button>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                {/* Manual Input */}
+                {inputMethod === "manual" && (
+                  <div>
+                    <Label htmlFor="students">Student Numbers <span className="text-red-500">*</span></Label>
+                    <Textarea
+                      id="students"
+                      placeholder="Enter student numbers (one per line or comma-separated)&#10;e.g.:&#10;2024001&#10;2024002&#10;2024003"
+                      value={studentNumbers}
+                      onChange={(e) => setStudentNumbers(e.target.value)}
+                      rows={8}
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Students entered: {parseStudentNumbers(studentNumbers).length}
+                    </p>
+                  </div>
+                )}
+
+                {/* CSV Import */}
+                {inputMethod === "csv" && (
+                  <div className="space-y-3">
+                    <Label htmlFor="csvFile">Upload CSV File <span className="text-red-500">*</span></Label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                      <input
+                        id="csvFile"
+                        type="file"
+                        accept=".csv"
+                        onChange={handleCSVUpload}
+                        className="hidden"
+                      />
+                      <Tooltip content="Upload a CSV file with student numbers in the first column. Headers will be automatically detected and skipped.">
+                        <label
+                          htmlFor="csvFile"
+                          className="cursor-pointer flex flex-col items-center gap-2"
+                        >
+                          <FileText className="h-8 w-8 text-gray-400" />
+                          <span className="text-sm font-medium text-gray-700">
+                            Click to upload CSV file
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Student numbers should be in the first column
+                          </span>
+                        </label>
+                      </Tooltip>
+                    </div>
+                    
+                    {csvFile && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-green-800">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span className="text-sm font-medium">{csvFile.name}</span>
+                        </div>
+                        <p className="text-xs text-green-600 mt-1">
+                          {importedStudents.length} student numbers imported
+                        </p>
+                      </div>
+                    )}
+
+                    {importedStudents.length > 0 && (
+                      <div className="max-h-32 overflow-y-auto bg-gray-50 rounded p-3">
+                        <p className="text-xs text-gray-600 mb-2">Preview (first 10):</p>
+                        <div className="text-xs font-mono space-y-1">
+                          {importedStudents.slice(0, 10).map((student, index) => (
+                            <div key={index}>{student}</div>
+                          ))}
+                          {importedStudents.length > 10 && (
+                            <div className="text-gray-500">...and {importedStudents.length - 10} more</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
                   <Label htmlFor="strategy">Allocation Strategy</Label>
-                  <Select value={allocationStrategy} onValueChange={(value: any) => setAllocationStrategy(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="balanced">Balanced - Distribute evenly across labs</SelectItem>
-                      <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
-                      <SelectItem value="preference">Preference - Prefer larger labs first</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Tooltip content="Choose how students are distributed across available labs">
+                    <Select value={allocationStrategy} onValueChange={(value: any) => setAllocationStrategy(value)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="balanced">Balanced - Distribute evenly across labs</SelectItem>
+                        <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
+                        <SelectItem value="preference">Preference - Prefer larger labs first</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Tooltip>
                 </div>
               </div>
 
@@ -717,30 +1046,40 @@ export default function LabsOverview() {
                     </div>
                     <div className="flex justify-between">
                       <span>Students to Allocate:</span>
-                      <span className="font-medium text-blue-600">{parseStudentNumbers(studentNumbers).length}</span>
+                      <span className="font-medium text-blue-600">{getCurrentStudentList().length}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Remaining Capacity:</span>
                       <span className="font-medium text-gray-600">
-                        {Math.max(0, getTotalAvailableSeats() - parseStudentNumbers(studentNumbers).length)}
+                        {Math.max(0, getTotalAvailableSeats() - getCurrentStudentList().length)}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex gap-2">
-                  <Button onClick={generateSeatingPlan} className="flex-1" disabled={studentNumbers.trim() === ""}>
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    Generate Plan
-                  </Button>
-                  <Button variant="outline" onClick={clearAllAllocations}>
-                    <RotateCcw className="h-4 w-4 mr-2" />
-                    Clear All
-                  </Button>
-                  <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Export PDF
-                  </Button>
+                  <Tooltip content="Create seating plan with current settings and student list">
+                    <Button 
+                      onClick={generateSeatingPlan} 
+                      className="flex-1" 
+                      disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0}
+                    >
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Generate Plan
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Remove all current seat allocations and reset the system">
+                    <Button variant="outline" onClick={clearAllAllocations}>
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Clear All
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Export the current seating plan as a printable PDF document">
+                    <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0}>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Export PDF
+                    </Button>
+                  </Tooltip>
                 </div>
               </div>
             </div>
@@ -816,7 +1155,17 @@ export default function LabsOverview() {
                     )}
                   </div>
 
-                  <Link href={`/labs/${lab.id}`} className="block">
+                  <Link 
+                    href={{
+                      pathname: `/labs/${lab.id}`,
+                      query: { 
+                        up: lab.machinesUp,
+                        down: lab.machinesDown,
+                        total: lab.totalMachines
+                      }
+                    }} 
+                    className="block"
+                  >
                     <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8]">View configurations</Button>
                   </Link>
                 </CardContent>

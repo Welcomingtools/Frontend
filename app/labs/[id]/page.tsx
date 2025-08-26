@@ -1,8 +1,9 @@
+// LabStatusPage.tsx
 "use client"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -43,47 +44,31 @@ const labCapacities: Record<string, number> = {
 
 export default function LabStatusPage() {
   const { id } = useParams()
+  const searchParams = useSearchParams()
   const [sessionData, setSessionData] = useState(mockSessionData)
+  
+  // Get machine status from query parameters or generate if not provided
+  const upFromQuery = searchParams.get('up')
+  const downFromQuery = searchParams.get('down')
+  const totalFromQuery = searchParams.get('total')
   
   // Get the correct capacity for this lab with proper type handling
   const labId = Array.isArray(id) ? id[0] : id
-  const totalMachines = labCapacities[labId || ''] || 50
+  const totalMachines = totalFromQuery ? parseInt(totalFromQuery) : (labCapacities[labId || ''] || 50)
   
-  // Generate random machine counts
-  const getRandomMachineCount = (capacity: number) => {
-    // Random number of machines down (anywhere from 0 to 15% of capacity)
-    const maxDown = Math.floor(capacity * 0.15)
-    const machinesDown = Math.floor(Math.random() * (maxDown + 1))
-    const machinesUp = capacity - machinesDown
-    return { up: machinesUp, down: machinesDown }
-  }
-  
-  const [machineStatus] = useState(() => getRandomMachineCount(totalMachines))
-  const [machinesUp, setMachinesUp] = useState(machineStatus.up)
-  const [machinesDown, setMachinesDown] = useState(machineStatus.down)
+  // Use provided machine counts or generate random ones if not provided
+  const [machinesUp, setMachinesUp] = useState(
+    upFromQuery ? parseInt(upFromQuery) : Math.floor(totalMachines * (0.85 + Math.random() * 0.15))
+  )
+  const [machinesDown, setMachinesDown] = useState(
+    downFromQuery ? parseInt(downFromQuery) : totalMachines - machinesUp
+  )
   const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString())
 
-  // Simulate real-time updates with random changes
+  // Only update the time, not the machine status
   useEffect(() => {
-    const interval = setInterval(() => {
-      setLastUpdated(new Date().toLocaleTimeString())
-      // Simulate occasional random machine status changes
-      if (Math.random() < 0.1) {
-        const change = Math.random() < 0.5 ? 1 : -1
-        setMachinesUp(prev => {
-          const newCount = prev + change
-          const newDown = totalMachines - newCount
-          if (newCount >= 0 && newCount <= totalMachines && newDown >= 0) {
-            setMachinesDown(newDown)
-            return newCount
-          }
-          return prev
-        })
-      }
-    }, 30000) // Update every 30 seconds
-
-    return () => clearInterval(interval)
-  }, [totalMachines])
+    setLastUpdated(new Date().toLocaleTimeString())
+  }, [])
 
   const getConfigurationStatus = (isEnabled: boolean) => {
     return isEnabled ? (
