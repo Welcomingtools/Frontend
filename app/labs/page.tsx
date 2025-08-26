@@ -1,3 +1,4 @@
+// LabsOverview.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -12,6 +13,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+
+// Tooltip component
+const Tooltip = ({ children, content }: { children: React.ReactNode; content: string }) => {
+  return (
+    <div className="relative group">
+      {children}
+      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-10 pointer-events-none">
+        {content}
+        <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800"></div>
+      </div>
+    </div>
+  )
+}
 
 interface Machine {
   id: string // e.g., "TWK-005-01-01"
@@ -136,6 +150,14 @@ export default function LabsOverview() {
     return machines
   }
 
+  // Generate random machines up (85-100% of total)
+  const getRandomMachinesUp = (total: number): number => {
+    const minPercentage = 85
+    const maxPercentage = 100
+    const percentage = Math.floor(Math.random() * (maxPercentage - minPercentage + 1)) + minPercentage
+    return Math.floor((percentage / 100) * total)
+  }
+
   useEffect(() => {
     const fetchLabs = async () => {
       const mockLabs: Lab[] = [
@@ -143,85 +165,79 @@ export default function LabsOverview() {
           id: "004",
           name: "Lab 004",
           totalMachines: 100,
-          machinesUp: 95,
-          machinesDown: 5,
+          machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
           status: "Available",
-          machines: generateMachines("004", 100, 95),
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "005",
           name: "Lab 005",
           totalMachines: 100,
-          machinesUp: 85,
-          machinesDown: 15,
-          status: "In Use",
-          currentBooking: {
-            course: "Computer Science 101",
-            instructor: "Dr. Sarah Johnson",
-            time: "09:00 AM - 11:00 AM",
-            studentsBooked: 30,
-          },
-          machines: generateMachines("005", 100, 85),
+          machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "006",
           name: "Lab 006",
           totalMachines: 100,
-          machinesUp: 0,
-          machinesDown: 100,
-          status: "Maintenance",
-          machines: generateMachines("006", 100, 0),
+          machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "108",
           name: "Lab 108",
           totalMachines: 50,
-          machinesUp: 48,
-          machinesDown: 2,
+          machinesUp: getRandomMachinesUp(50),
+          machinesDown: 0,
           status: "Available",
-          machines: generateMachines("108", 50, 48),
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "109",
           name: "Lab 109",
           totalMachines: 50,
-          machinesUp: 45,
-          machinesDown: 5,
-          status: "In Use",
-          currentBooking: {
-            course: "Data Structures",
-            instructor: "Prof. Mike Chen",
-            time: "14:00 PM - 16:00 PM",
-            studentsBooked: 20,
-          },
-          machines: generateMachines("109", 50, 45),
+          machinesUp: getRandomMachinesUp(50),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "110",
           name: "Lab 110",
           totalMachines: 50,
-          machinesUp: 50,
+          machinesUp: getRandomMachinesUp(50),
           machinesDown: 0,
           status: "Available",
-          machines: generateMachines("110", 50, 50),
+          machines: [],
           allocatedStudents: [],
         },
         {
           id: "111",
           name: "Lab 111",
           totalMachines: 50,
-          machinesUp: 47,
-          machinesDown: 3,
+          machinesUp: getRandomMachinesUp(50),
+          machinesDown: 0,
           status: "Available",
-          machines: generateMachines("111", 50, 47),
+          machines: [],
           allocatedStudents: [],
         },
       ]
+
+      // Generate machines after calculating machinesUp and set machinesDown
+      mockLabs.forEach(lab => {
+        lab.machines = generateMachines(lab.id, lab.totalMachines, lab.machinesUp)
+        lab.machinesDown = lab.totalMachines - lab.machinesUp
+      })
 
       await new Promise((resolve) => setTimeout(resolve, 1000))
       setLabs(mockLabs)
@@ -792,7 +808,13 @@ export default function LabsOverview() {
       <div className="min-h-screen bg-gray-50">
         <header className="bg-[#1e40af] text-white p-4">
           <div className="container mx-auto flex items-center gap-4">
+          <Link 
+            href="/dashboard"
+            className="cursor-pointer hover:bg-blue-600 p-1 rounded"
+            title="Go to dashboard"
+          >
             <ArrowLeft className="h-6 w-6" />
+          </Link>
             <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
           </div>
         </header>
@@ -807,7 +829,13 @@ export default function LabsOverview() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-[#1e40af] text-white p-4">
         <div className="container mx-auto flex items-center gap-4">
-          <ArrowLeft className="h-6 w-6" />
+          <Link 
+            href="/dashboard"
+            className="cursor-pointer hover:bg-blue-600 p-1 rounded"
+            title="Go to dashboard"
+          >
+            <ArrowLeft className="h-6 w-6" />
+          </Link>
           <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
         </div>
       </header>
@@ -888,28 +916,32 @@ export default function LabsOverview() {
                 <div>
                   <Label className="text-sm font-medium">Student Numbers Input Method</Label>
                   <div className="flex gap-2 mt-2">
-                    <Button
-                      type="button"
-                      variant={inputMethod === "manual" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        setInputMethod("manual")
-                        setImportedStudents([])
-                        setCsvFile(null)
-                      }}
-                      className="flex-1"
-                    >
-                      Manual Entry
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={inputMethod === "csv" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setInputMethod("csv")}
-                      className="flex-1"
-                    >
-                      CSV Import
-                    </Button>
+                    <Tooltip content="Type student numbers manually in the text area">
+                      <Button
+                        type="button"
+                        variant={inputMethod === "manual" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          setInputMethod("manual")
+                          setImportedStudents([])
+                          setCsvFile(null)
+                        }}
+                        className="flex-1"
+                      >
+                        Manual Entry
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="Upload a CSV file containing student numbers">
+                      <Button
+                        type="button"
+                        variant={inputMethod === "csv" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setInputMethod("csv")}
+                        className="flex-1"
+                      >
+                        CSV Import
+                      </Button>
+                    </Tooltip>
                   </div>
                 </div>
 
@@ -943,18 +975,20 @@ export default function LabsOverview() {
                         onChange={handleCSVUpload}
                         className="hidden"
                       />
-                      <label
-                        htmlFor="csvFile"
-                        className="cursor-pointer flex flex-col items-center gap-2"
-                      >
-                        <FileText className="h-8 w-8 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-700">
-                          Click to upload CSV file
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          Student numbers should be in the first column
-                        </span>
-                      </label>
+                      <Tooltip content="Upload a CSV file with student numbers in the first column. Headers will be automatically detected and skipped.">
+                        <label
+                          htmlFor="csvFile"
+                          className="cursor-pointer flex flex-col items-center gap-2"
+                        >
+                          <FileText className="h-8 w-8 text-gray-400" />
+                          <span className="text-sm font-medium text-gray-700">
+                            Click to upload CSV file
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Student numbers should be in the first column
+                          </span>
+                        </label>
+                      </Tooltip>
                     </div>
                     
                     {csvFile && (
@@ -987,16 +1021,18 @@ export default function LabsOverview() {
 
                 <div>
                   <Label htmlFor="strategy">Allocation Strategy</Label>
-                  <Select value={allocationStrategy} onValueChange={(value: any) => setAllocationStrategy(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="balanced">Balanced - Distribute evenly across labs</SelectItem>
-                      <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
-                      <SelectItem value="preference">Preference - Prefer larger labs first</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Tooltip content="Choose how students are distributed across available labs">
+                    <Select value={allocationStrategy} onValueChange={(value: any) => setAllocationStrategy(value)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="balanced">Balanced - Distribute evenly across labs</SelectItem>
+                        <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
+                        <SelectItem value="preference">Preference - Prefer larger labs first</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Tooltip>
                 </div>
               </div>
 
@@ -1022,22 +1058,28 @@ export default function LabsOverview() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button 
-                    onClick={generateSeatingPlan} 
-                    className="flex-1" 
-                    disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0}
-                  >
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    Generate Plan
-                  </Button>
-                  <Button variant="outline" onClick={clearAllAllocations}>
-                    <RotateCcw className="h-4 w-4 mr-2" />
-                    Clear All
-                  </Button>
-                  <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Export PDF
-                  </Button>
+                  <Tooltip content="Create seating plan with current settings and student list">
+                    <Button 
+                      onClick={generateSeatingPlan} 
+                      className="flex-1" 
+                      disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0}
+                    >
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Generate Plan
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Remove all current seat allocations and reset the system">
+                    <Button variant="outline" onClick={clearAllAllocations}>
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Clear All
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content="Export the current seating plan as a printable PDF document">
+                    <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0}>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Export PDF
+                    </Button>
+                  </Tooltip>
                 </div>
               </div>
             </div>
@@ -1113,7 +1155,17 @@ export default function LabsOverview() {
                     )}
                   </div>
 
-                  <Link href={`/labs/${lab.id}`} className="block">
+                  <Link 
+                    href={{
+                      pathname: `/labs/${lab.id}`,
+                      query: { 
+                        up: lab.machinesUp,
+                        down: lab.machinesDown,
+                        total: lab.totalMachines
+                      }
+                    }} 
+                    className="block"
+                  >
                     <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8]">View configurations</Button>
                   </Link>
                 </CardContent>
