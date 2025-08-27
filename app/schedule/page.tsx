@@ -36,9 +36,6 @@ const PURPOSE_OPTIONS = [
 // Time validation constants
 const MIN_SESSION_DURATION = 30 // minimum 30 minutes
 const MAX_SESSION_DURATION = 300 // maximum 5 hours
-const BUSINESS_START_TIME = "07:00" // 7:00 AM
-const BUSINESS_END_TIME = "19:00" // 7:00 PM (latest start time)
-const ABSOLUTE_END_TIME = "21:00" // 9:00 PM (latest end time)
 
 // Mock data for scheduled sessions
 const initialSessions = [
@@ -210,38 +207,33 @@ const getSessionDateTime = (date: string, time: string) => {
   return sessionDate
 }
 
+// MODIFIED: Allow check-in at any time after scheduling for testing
 const canCheckIn = (sessionDate: string, startTime: string, endTime: string) => {
   const now = new Date()
   const sessionStart = getSessionDateTime(sessionDate, startTime)
   const sessionEnd = getSessionDateTime(sessionDate, endTime)
   
-  // Allow check-in 30 minutes before session starts
-  const checkInStart = new Date(sessionStart.getTime() - 30 * 60 * 1000)
-  
-  // Can check in from 30 minutes before until session ends
-  return now >= checkInStart && now <= sessionEnd
+  // For testing: Allow check-in immediately after scheduling, not just 30 minutes before
+  return now <= sessionEnd
 }
 
 const getCheckInStatus = (sessionDate: string, startTime: string, endTime: string) => {
   const now = new Date()
   const sessionStart = getSessionDateTime(sessionDate, startTime)
   const sessionEnd = getSessionDateTime(sessionDate, endTime)
-  const checkInStart = new Date(sessionStart.getTime() - 30 * 60 * 1000)
   
-  if (now < checkInStart) {
-    const timeDiff = checkInStart.getTime() - now.getTime()
+  if (now < sessionStart) {
+    const timeDiff = sessionStart.getTime() - now.getTime()
     const hoursLeft = Math.floor(timeDiff / (1000 * 60 * 60))
     const minutesLeft = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60))
     
     if (hoursLeft > 0) {
-      return `Check-in available in ${hoursLeft}h ${minutesLeft}m`
+      return `Session starts in ${hoursLeft}h ${minutesLeft}m`
     } else {
-      return `Check-in available in ${minutesLeft}m`
+      return `Session starts in ${minutesLeft}m`
     }
   } else if (now > sessionEnd) {
     return "Session ended"
-  } else if (now >= sessionStart) {
-    return "Session in progress"
   } else {
     return "Check-in available"
   }
@@ -252,6 +244,15 @@ const hasTimePassed = (date: string, time: string) => {
   const now = new Date()
   const timeDateTime = getSessionDateTime(date, time)
   return timeDateTime < now
+}
+
+// User session type
+type UserSession = {
+  email: string
+  name: string
+  role: string
+  loginTime: string
+  accountType: string
 }
 
 export default function SchedulePage() {
@@ -267,7 +268,21 @@ export default function SchedulePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'warning' } | null>(null)
+  const [userSession, setUserSession] = useState<UserSession | null>(null)
   const router = useRouter()
+
+  // Load user session
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sessionData = sessionStorage.getItem('userSession')
+      if (!sessionData) {
+        router.push('/login')
+        return
+      }
+      const session: UserSession = JSON.parse(sessionData)
+      setUserSession(session)
+    }
+  }, [router])
 
   // Update current time every minute for real-time check-in validation
   useEffect(() => {
@@ -345,6 +360,16 @@ export default function SchedulePage() {
     setToast({ message, type })
   }
 
+  // Check if user can schedule sessions (only Admin)
+  const canScheduleSessions = () => {
+    return userSession?.role === "Admin"
+  }
+
+  // Check if user can check in to sessions (BCDR and Welcoming Team)
+  const canCheckInToSessions = () => {
+    return userSession?.role === "BCDR" || userSession?.role === "Welcoming Team"
+  }
+
   // Validation functions
   const validateForm = (): boolean => {
     const errors: ValidationErrors = {}
@@ -376,35 +401,11 @@ export default function SchedulePage() {
       if (newSession.date === today && hasTimePassed(newSession.date, newSession.startTime)) {
         errors.startTime = "Start time has already passed. Please choose a future time."
       }
-      
-      // Business hours validation for start time
-      const startMinutes = parseTime(newSession.startTime)
-      const businessStartMinutes = parseTime(BUSINESS_START_TIME)
-      const businessEndMinutes = parseTime(BUSINESS_END_TIME)
-      
-      if (startMinutes < businessStartMinutes) {
-        errors.startTime = `Sessions cannot start before ${BUSINESS_START_TIME} (7:00 AM)`
-      } else if (startMinutes > businessEndMinutes) {
-        // Show toast for after hours booking
-        showToast(
-          "Sessions cannot start after 7:00 PM. Please contact the administrator for after-hours bookings.",
-          'warning'
-        )
-        errors.startTime = "Start time must be before 7:00 PM"
-      }
     }
 
     // End time validation
     if (!newSession.endTime) {
       errors.endTime = "Please select an end time"
-    } else {
-      // Business hours validation for end time
-      const endMinutes = parseTime(newSession.endTime)
-      const absoluteEndMinutes = parseTime(ABSOLUTE_END_TIME)
-      
-      if (endMinutes > absoluteEndMinutes) {
-        errors.endTime = `Sessions must end by ${ABSOLUTE_END_TIME} (9:00 PM)`
-      }
     }
 
     // Time range validation
@@ -415,9 +416,7 @@ export default function SchedulePage() {
         errors.endTime = "End time must be after start time"
       } else if (timeValidation.tooShort) {
         errors.endTime = `Session must be at least ${MIN_SESSION_DURATION} minutes long`
-      } /*else if (timeValidation.tooLong) {
-        errors.endTime = `Session cannot exceed ${MAX_SESSION_DURATION} minutes (${Math.floor(MAX_SESSION_DURATION / 60)} hours)`
-      }*/
+      }
     }
 
     // Purpose validation
@@ -518,7 +517,7 @@ export default function SchedulePage() {
         ...newSession,
         purpose: newSession.purposeType === "other" ? newSession.customPurpose.trim() : newSession.purpose,
         status: sessionStatus,
-        createdBy: "You",
+        createdBy: userSession?.name || "You",
       }
 
       console.log('Creating new session:', newSessionObj)
@@ -617,6 +616,18 @@ export default function SchedulePage() {
     })
   }
 
+  // Show loading state while checking session
+  if (!userSession) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f4d92] mx-auto mb-4"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Toast Notification */}
@@ -658,250 +669,253 @@ export default function SchedulePage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <h1 className="text-xl font-bold">Schedule Sessions</h1>
+            <div>
+              <h1 className="text-xl font-bold">Schedule Sessions</h1>
+              <p className="text-xs opacity-75">
+                {userSession.name} ({userSession.role}) - 
+                {canScheduleSessions() ? " Can schedule sessions" : " Can check in to sessions"}
+              </p>
+            </div>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
-                <Plus className="h-4 w-4 mr-2" />
-                New Session
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Schedule New Session</DialogTitle>
-                <DialogDescription>Create a new lab session with specific configurations.</DialogDescription>
-              </DialogHeader>
-              
-              {validationErrors.general && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{validationErrors.general}</AlertDescription>
-                </Alert>
-              )}
+          
+          {canScheduleSessions() && (
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Session
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Schedule New Session</DialogTitle>
+                  <DialogDescription>Create a new lab session with specific configurations.</DialogDescription>
+                </DialogHeader>
+                
+                {validationErrors.general && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{validationErrors.general}</AlertDescription>
+                  </Alert>
+                )}
 
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="date" className="text-sm font-medium">
-                      Date <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="date"
-                      type="date"
-                      value={newSession.date}
-                      onChange={(e) => handleFormChange("date", e.target.value)}
-                      min={new Date().toISOString().split("T")[0]}
-                      className={validationErrors.date ? "border-red-500" : ""}
-                    />
-                    {validationErrors.date && (
-                      <p className="text-sm text-red-500">{validationErrors.date}</p>
-                    )}
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="date" className="text-sm font-medium">
+                        Date <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="date"
+                        type="date"
+                        value={newSession.date}
+                        onChange={(e) => handleFormChange("date", e.target.value)}
+                        min={new Date().toISOString().split("T")[0]}
+                        className={validationErrors.date ? "border-red-500" : ""}
+                      />
+                      {validationErrors.date && (
+                        <p className="text-sm text-red-500">{validationErrors.date}</p>
+                      )}
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="lab" className="text-sm font-medium">
+                        Lab <span className="text-red-500">*</span>
+                      </Label>
+                      <Select 
+                        value={newSession.lab} 
+                        onValueChange={(value) => handleFormChange("lab", value)}
+                      >
+                        <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
+                          <SelectValue placeholder="Select lab" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {labsData.map((lab) => (
+                            <SelectItem key={lab.id} value={lab.id}>
+                              Lab {lab.id} ({lab.capacity} seats)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {validationErrors.lab && (
+                        <p className="text-sm text-red-500">{validationErrors.lab}</p>
+                      )}
+                    </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="startTime" className="text-sm font-medium">
+                        Start Time <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="startTime"
+                        type="time"
+                        value={newSession.startTime}
+                        onChange={(e) => handleFormChange("startTime", e.target.value)}
+                        className={validationErrors.startTime ? "border-red-500" : ""}
+                      />
+                      {validationErrors.startTime && (
+                        <p className="text-sm text-red-500">{validationErrors.startTime}</p>
+                      )}
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="endTime" className="text-sm font-medium">
+                        End Time <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="endTime"
+                        type="time"
+                        value={newSession.endTime}
+                        onChange={(e) => handleFormChange("endTime", e.target.value)}
+                        className={validationErrors.endTime ? "border-red-500" : ""}
+                      />
+                      {validationErrors.endTime && (
+                        <p className="text-sm text-red-500">{validationErrors.endTime}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Duration and admin review warning */}
+                  {newSession.startTime && newSession.endTime && (
+                    <div className="mt-2">
+                      {(() => {
+                        const timeValidation = validateTimeRange(newSession.startTime, newSession.endTime)
+                        const duration = timeValidation.duration || 0
+                        const hours = duration / 60
+                        
+                        if (timeValidation.isValid && duration > 240) {
+                          return (
+                            <Alert className="border-orange-200 bg-orange-50">
+                              <AlertCircle className="h-4 w-4 text-orange-600" />
+                              <AlertDescription className="text-orange-800">
+                                <strong>Admin Review Required:</strong> Sessions longer than 4 hours ({hours.toFixed(1)} hours) require administrator approval to minimize booking errors.
+                              </AlertDescription>
+                            </Alert>
+                          )
+                        } else if (timeValidation.isValid) {
+                          return (
+                            <p className="text-sm text-muted-foreground">
+                              Session duration: {Math.round(duration)} minutes ({hours.toFixed(1)} hours)
+                            </p>
+                          )
+                        }
+                        return null
+                      })()}
+                    </div>
+                  )}
+
                   <div className="grid gap-2">
-                    <Label htmlFor="lab" className="text-sm font-medium">
-                      Lab <span className="text-red-500">*</span>
+                    <Label htmlFor="purposeType" className="text-sm font-medium">
+                      Purpose Type <span className="text-red-500">*</span>
                     </Label>
-                    <Select 
-                      value={newSession.lab} 
-                      onValueChange={(value) => handleFormChange("lab", value)}
+                    <Select
+                      value={newSession.purposeType}
+                      onValueChange={(value) => handleFormChange("purposeType", value)}
                     >
-                      <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select lab" />
+                      <SelectTrigger className={validationErrors.purpose ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Select purpose type" />
                       </SelectTrigger>
                       <SelectContent>
-                        {labsData.map((lab) => (
-                          <SelectItem key={lab.id} value={lab.id}>
-                            Lab {lab.id} ({lab.capacity} seats)
+                        {PURPOSE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {validationErrors.lab && (
-                      <p className="text-sm text-red-500">{validationErrors.lab}</p>
+                    {validationErrors.purpose && (
+                      <p className="text-sm text-red-500">{validationErrors.purpose}</p>
                     )}
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="startTime" className="text-sm font-medium">
-                      Start Time <span className="text-red-500">*</span>
-                      <span className="text-xs text-muted-foreground ml-1">(07:00 - 19:00 )</span>
-                    </Label>
-                    <Input
-                      id="startTime"
-                      type="time"
-                      value={newSession.startTime}
-                      onChange={(e) => handleFormChange("startTime", e.target.value)}
-                      min="07:00"
-                      max="19:00"
-                      className={validationErrors.startTime ? "border-red-500" : ""}
-                    />
-                    {validationErrors.startTime && (
-                      <p className="text-sm text-red-500">{validationErrors.startTime}</p>
-                    )}
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="endTime" className="text-sm font-medium">
-                      End Time <span className="text-red-500">*</span>
-                      <span className="text-xs text-muted-foreground ml-1">(Latest: 21:00 )</span>
-                    </Label>
-                    <Input
-                      id="endTime"
-                      type="time"
-                      value={newSession.endTime}
-                      onChange={(e) => handleFormChange("endTime", e.target.value)}
-                      min="07:30"
-                      max="21:00"
-                      className={validationErrors.endTime ? "border-red-500" : ""}
-                    />
-                    {validationErrors.endTime && (
-                      <p className="text-sm text-red-500">{validationErrors.endTime}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Duration and admin review warning */}
-                {newSession.startTime && newSession.endTime && (
-                  <div className="mt-2">
-                    {(() => {
-                      const timeValidation = validateTimeRange(newSession.startTime, newSession.endTime)
-                      const duration = timeValidation.duration || 0
-                      const hours = duration / 60
-                      
-                      if (timeValidation.isValid && duration > 240) {
-                        return (
-                          <Alert className="border-orange-200 bg-orange-50">
-                            <AlertCircle className="h-4 w-4 text-orange-600" />
-                            <AlertDescription className="text-orange-800">
-                              <strong>Admin Review Required:</strong> Sessions longer than 4 hours ({hours.toFixed(1)} hours) require administrator approval to minimize booking errors.
-                            </AlertDescription>
-                          </Alert>
-                        )
-                      } else if (timeValidation.isValid) {
-                        return (
-                          <p className="text-sm text-muted-foreground">
-                            Session duration: {Math.round(duration)} minutes ({hours.toFixed(1)} hours)
-                          </p>
-                        )
-                      }
-                      return null
-                    })()}
-                  </div>
-                )}
-
-                <div className="grid gap-2">
-                  <Label htmlFor="purposeType" className="text-sm font-medium">
-                    Purpose Type <span className="text-red-500">*</span>
-                  </Label>
-                  <Select
-                    value={newSession.purposeType}
-                    onValueChange={(value) => handleFormChange("purposeType", value)}
-                  >
-                    <SelectTrigger className={validationErrors.purpose ? "border-red-500" : ""}>
-                      <SelectValue placeholder="Select purpose type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PURPOSE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {validationErrors.purpose && (
-                    <p className="text-sm text-red-500">{validationErrors.purpose}</p>
+                  {newSession.purposeType === "other" && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="customPurpose" className="text-sm font-medium">
+                        Custom Purpose <span className="text-red-500">*</span>
+                      </Label>
+                      <Textarea
+                        id="customPurpose"
+                        placeholder="Describe the purpose of this session"
+                        value={newSession.customPurpose}
+                        onChange={(e) => handleFormChange("customPurpose", e.target.value)}
+                        maxLength={200}
+                        className={validationErrors.purpose ? "border-red-500" : ""}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span></span>
+                        <span>{newSession.customPurpose.length}/200</span>
+                      </div>
+                    </div>
                   )}
-                </div>
 
-                {newSession.purposeType === "other" && (
-                  <div className="grid gap-2">
-                    <Label htmlFor="customPurpose" className="text-sm font-medium">
-                      Custom Purpose <span className="text-red-500">*</span>
-                    </Label>
-                    <Textarea
-                      id="customPurpose"
-                      placeholder="Describe the purpose of this session"
-                      value={newSession.customPurpose}
-                      onChange={(e) => handleFormChange("customPurpose", e.target.value)}
-                      maxLength={200}
-                      className={validationErrors.purpose ? "border-red-500" : ""}
-                    />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span></span>
-                      <span>{newSession.customPurpose.length}/200</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Lab Configuration</Label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="windows"
-                        checked={newSession.configurations.windows}
-                        onChange={(e) => handleFormChange("configurations.windows", e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <Label htmlFor="windows" className="text-sm">Windows Boot</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="internet"
-                        checked={newSession.configurations.internet}
-                        onChange={(e) => handleFormChange("configurations.internet", e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <Label htmlFor="internet" className="text-sm">Internet Access</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="homes"
-                        checked={newSession.configurations.homes}
-                        onChange={(e) => handleFormChange("configurations.homes", e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <Label htmlFor="homes" className="text-sm">Home Directories</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="userCleanup"
-                        checked={newSession.configurations.userCleanup}
-                        onChange={(e) => handleFormChange("configurations.userCleanup", e.target.checked)}
-                        className="rounded border-gray-300"
-                      />
-                      <Label htmlFor="userCleanup" className="text-sm">User Cleanup</Label>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Lab Configuration</Label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="windows"
+                          checked={newSession.configurations.windows}
+                          onChange={(e) => handleFormChange("configurations.windows", e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="windows" className="text-sm">Windows Boot</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="internet"
+                          checked={newSession.configurations.internet}
+                          onChange={(e) => handleFormChange("configurations.internet", e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="internet" className="text-sm">Internet Access</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="homes"
+                          checked={newSession.configurations.homes}
+                          onChange={(e) => handleFormChange("configurations.homes", e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="homes" className="text-sm">Home Directories</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="userCleanup"
+                          checked={newSession.configurations.userCleanup}
+                          onChange={(e) => handleFormChange("configurations.userCleanup", e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="userCleanup" className="text-sm">User Cleanup</Label>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              
-              <DialogFooter>
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setIsAddDialogOpen(false)
-                    setValidationErrors({})
-                  }}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleCreateSession} 
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Scheduling..." : "Schedule Session"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                
+                <DialogFooter>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setIsAddDialogOpen(false)
+                      setValidationErrors({})
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleCreateSession} 
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Scheduling..." : "Schedule Session"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </header>
 
@@ -965,10 +979,12 @@ export default function SchedulePage() {
                 <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                 <h3 className="text-lg font-medium">No Sessions Scheduled</h3>
                 <p className="text-sm text-muted-foreground mb-4">There are no sessions scheduled for this date.</p>
-                <Button onClick={() => setIsAddDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Schedule New Session
-                </Button>
+                {canScheduleSessions() && (
+                  <Button onClick={() => setIsAddDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Schedule New Session
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -1055,15 +1071,17 @@ export default function SchedulePage() {
                             </div>
                             <div className="flex flex-col gap-2">
                               <div className="flex gap-2">
-                                <Button 
-                                  className="flex-1" 
-                                  onClick={() => navigateToSession(session.id)}
-                                  disabled={!checkInAvailable || isUnderReview}
-                                >
-                                  {isUnderReview ? "Under Review" : 
-                                   checkInAvailable ? "Check In" : "Not Available"}
-                                </Button>
-                                {session.createdBy === "You" && (
+                                {canCheckInToSessions() && (
+                                  <Button 
+                                    className="flex-1" 
+                                    onClick={() => navigateToSession(session.id)}
+                                    disabled={!checkInAvailable || isUnderReview}
+                                  >
+                                    {isUnderReview ? "Under Review" : 
+                                     checkInAvailable ? "Check In" : "Not Available"}
+                                  </Button>
+                                )}
+                                {session.createdBy === userSession?.name && (
                                   <Button
                                     variant="outline"
                                     size="icon"
@@ -1075,9 +1093,9 @@ export default function SchedulePage() {
                                   </Button>
                                 )}
                               </div>
-                              {!checkInAvailable && checkInStatus.includes("available in") && !isUnderReview && (
+                              {!checkInAvailable && checkInStatus.includes("starts in") && !isUnderReview && (
                                 <p className="text-xs text-muted-foreground text-center">
-                                  Check-in opens 30min before session
+                                  Check-in available when session starts
                                 </p>
                               )}
                               {isUnderReview && (
