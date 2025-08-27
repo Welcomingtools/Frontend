@@ -64,7 +64,7 @@ export default function TeamPage() {
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [teamData, setTeamData] = useState<Member[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [newMember, setNewMember] = useState({ name: "", email: "", role: "TLA" })
+  const [newMember, setNewMember] = useState({ name: "", email: "", role: "Welcoming Team" })
   const [editMember, setEditMember] = useState<Member | null>(null)
 
   // Check user authorization
@@ -78,6 +78,11 @@ export default function TeamPage() {
       }
 
       const session: UserSession = JSON.parse(sessionData)
+      // Convert any existing "TLA" roles to "Welcoming Team"
+      if (session.role === "TLA") {
+        session.role = "Welcoming Team"
+        sessionStorage.setItem('userSession', JSON.stringify(session))
+      }
       setUserSession(session)
 
       // Check if user has access to team management
@@ -96,10 +101,14 @@ export default function TeamPage() {
     const fetchMembers = async () => {
       try {
         const snapshot = await getDocs(collection(db, "teamMembers"))
-        const members = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Member[]
+        const members = snapshot.docs.map(doc => {
+          const data = doc.data()
+          
+          return {
+            id: doc.id,
+            ...data,
+          } as Member
+        })
         setTeamData(members)
       } catch (error) {
         console.error("Error fetching members:", error)
@@ -127,7 +136,7 @@ export default function TeamPage() {
       })
 
       setTeamData([...teamData, { id, ...newMember, status: "Active", password }])
-      setNewMember({ name: "", email: "", role: "TLA" })
+      setNewMember({ name: "", email: "", role: "Welcoming Team" })
       setIsAddDialogOpen(false)
 
       // Show password to admin (they can send it manually)
@@ -228,7 +237,7 @@ export default function TeamPage() {
               
               <p className="text-muted-foreground">
                 Your current role is <Badge variant="outline">{userSession?.role}</Badge>. 
-                Only Admin and TLA members can access team management features.
+                Only Admin and Welcoming Team members can access team management features.
               </p>
               
               <p className="text-sm text-muted-foreground">
@@ -307,7 +316,7 @@ export default function TeamPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Admin">Admin</SelectItem>
-                      <SelectItem value="TLA">TLA</SelectItem>
+                      <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
                       <SelectItem value="BCDR">BCDR</SelectItem>
                     </SelectContent>
                   </Select>
@@ -394,7 +403,7 @@ export default function TeamPage() {
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="Admin">Admin</SelectItem>
-                                  <SelectItem value="TLA">TLA</SelectItem>
+                                  <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
                                   <SelectItem value="BCDR">BCDR</SelectItem>
                                 </SelectContent>
                               </Select>

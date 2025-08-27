@@ -168,7 +168,7 @@ export default function Dashboard() {
             </div>
 
             {/* ROLE-BASED ACCESS: Only show Team Management for Admin and TLA */}
-            {userSession.role !== "BCDR" && (
+            {userSession.role !== "BCDR" && userSession.role !== "Welcoming Team" && (
               <div className="bg-card rounded-lg border shadow-sm p-6">
                 <div className="flex items-center gap-4">
                   <Users className="h-8 w-8 text-[#0f4d92]" />

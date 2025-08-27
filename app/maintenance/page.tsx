@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Plus, AlertTriangle, Search, AlertCircle } from "lucide-react"
+import { ArrowLeft, Plus, AlertTriangle, Search, AlertCircle, Shield } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,19 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Mock data for labs with actual machine counts
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  addDoc,
+  doc,
+  updateDoc,
+  serverTimestamp
+} from "firebase/firestore"
+import { db } from "@/firebase/clientApp" // adjust path if your alias differs
+
+// Lab configuration data
 const labsData = [
   { id: "004", name: "Lab 004", capacity: 100, rows: 10 },
   { id: "005", name: "Lab 005", capacity: 100, rows: 10 },
@@ -39,7 +51,7 @@ const generateMachineIds = (labId: string) => {
   const lab = labsData.find(l => l.id === labId)
   if (!lab) return []
   
-  const machines = []
+  const machines: { id: string; label: string; value: string }[] = []
   
   // Add "All machines" option
   machines.push({ id: `twk${labId}-all`, label: "All machines", value: "All machines" })
@@ -89,9 +101,9 @@ const statusOptions = [
   { id: "resolved", name: "Resolved", color: "bg-green-100 text-green-800" },
 ]
 
-// Issue interface for type safety
+// Issue interface for Firestore-backed data
 interface Issue {
-  id: number
+  id: string
   lab: string
   title: string
   description: string
@@ -99,10 +111,11 @@ interface Issue {
   severity: string
   status: string
   reportedBy: string
-  reportedAt: string
+  reportedAt?: any // Firestore Timestamp or string
   assignedTo: string | null
-  updatedAt: string | null
+  updatedAt?: any
   machineId: string
+  createdAt?: any
 }
 
 // Form validation types
@@ -116,89 +129,21 @@ interface ValidationErrors {
   general?: string
 }
 
-// Mock data for maintenance issues
-const initialIssues: Issue[] = [
-  {
-    id: 1,
-    lab: "004",
-    title: "Projector not working",
-    description: "The main projector in Lab 004 is not displaying any image. Power light is on but no signal.",
-    category: "hardware",
-    severity: "high",
-    status: "in-progress",
-    reportedBy: "John Doe",
-    reportedAt: "2023-05-05T10:30:00",
-    assignedTo: "Maintenance Team",
-    updatedAt: "2023-05-05T14:15:00",
-    machineId: "twk004-01-05",
-  },
-  {
-    id: 2,
-    lab: "108",
-    title: "Network connectivity issues",
-    description: "Several computers in Lab 108 are experiencing intermittent network connectivity issues.",
-    category: "network",
-    severity: "medium",
-    status: "reported",
-    reportedBy: "Jane Smith",
-    reportedAt: "2023-05-06T09:15:00",
-    assignedTo: null,
-    updatedAt: null,
-    machineId: "Multiple",
-  },
-  {
-    id: 3,
-    lab: "005",
-    title: "Software installation failure",
-    description: "Unable to install required software package on machines in Lab 005. Error code: 0x80070643",
-    category: "software",
-    severity: "medium",
-    status: "resolved",
-    reportedBy: "Mike Johnson",
-    reportedAt: "2023-05-04T11:20:00",
-    assignedTo: "IT Support",
-    updatedAt: "2023-05-06T16:45:00",
-    machineId: "All machines",
-  },
-  {
-    id: 4,
-    lab: "109",
-    title: "Keyboard not working",
-    description: "Keyboard on station 15 is not responding. Tried different USB ports but still not working.",
-    category: "peripheral",
-    severity: "low",
-    status: "resolved",
-    reportedBy: "Sarah Williams",
-    reportedAt: "2023-05-05T13:10:00",
-    assignedTo: "Lab Support",
-    updatedAt: "2023-05-05T15:30:00",
-    machineId: "twk109-02-05",
-  },
-  {
-    id: 5,
-    lab: "006",
-    title: "Power outage in section",
-    description: "The back row of Lab 006 (stations 91-100) has no power. Circuit breaker may have tripped.",
-    category: "power",
-    severity: "critical",
-    status: "in-progress",
-    reportedBy: "David Brown",
-    reportedAt: "2023-05-06T08:45:00",
-    assignedTo: "Facilities Management",
-    updatedAt: "2023-05-06T09:30:00",
-    machineId: "Multiple",
-  },
-]
+// User session type
+type UserSession = {
+  email: string
+  name: string
+  role: string
+  loginTime: string
+  accountType: string
+}
 
 export default function MaintenancePage() {
-  // Load issues from localStorage on component mount, fallback to initialIssues
-  const [issues, setIssues] = useState<Issue[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedIssues = localStorage.getItem('maintenanceIssues')
-      return savedIssues ? JSON.parse(savedIssues) : initialIssues
-    }
-    return initialIssues
-  })
+  const router = useRouter()
+  const [userSession, setUserSession] = useState<UserSession | null>(null)
+  
+  // Firestore-backed issues
+  const [issues, setIssues] = useState<Issue[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
@@ -208,7 +153,6 @@ export default function MaintenancePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const router = useRouter()
 
   // New issue form state
   const [newIssue, setNewIssue] = useState({
@@ -219,6 +163,61 @@ export default function MaintenancePage() {
     severity: "medium",
     machineId: "",
   })
+
+  // Load session (client-side)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sessionData = sessionStorage.getItem('userSession')
+      if (!sessionData) {
+        router.push('/login')
+        return
+      }
+      const session: UserSession = JSON.parse(sessionData)
+      setUserSession(session)
+    }
+  }, [router])
+
+  // Subscribe to Firestore maintenanceIssues (realtime)
+  useEffect(() => {
+    if (!userSession) return // wait for session to load
+
+    const q = query(collection(db, "maintenanceIssues"), orderBy("createdAt", "desc"))
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(docSnap => {
+        const d = docSnap.data() as any
+        return {
+          id: docSnap.id,
+          lab: d.lab ?? "",
+          title: d.title ?? "",
+          description: d.description ?? "",
+          category: d.category ?? "",
+          severity: d.severity ?? "medium",
+          status: d.status ?? "reported",
+          reportedBy: d.reportedBy ?? d.reporter ?? "Unknown User",
+          reportedAt: d.createdAt ?? d.reportedAt ?? null,
+          assignedTo: d.assignedTo ?? null,
+          updatedAt: d.updatedAt ?? null,
+          machineId: d.machineId ?? "",
+          createdAt: d.createdAt ?? null,
+        } as Issue
+      })
+      setIssues(docs)
+    }, (err) => {
+      console.error("Maintenance listener error:", err)
+    })
+
+    return () => unsubscribe()
+  }, [userSession])
+
+  // Check if user can update issue status (only BCDR and Admin)
+  const canUpdateStatus = () => {
+    return userSession?.role === "BCDR" || userSession?.role === "Admin"
+  }
+
+  // Check if user can report issues (all logged-in users)
+  const canReportIssue = () => {
+    return userSession !== null
+  }
 
   // Validation functions
   const validateForm = (): boolean => {
@@ -277,7 +276,7 @@ export default function MaintenancePage() {
 
   // Navigate back to dashboard
   const handleBackToDashboard = () => {
-    router.push("/dashboard") // Change this to your actual dashboard route
+    router.push("/dashboard")
   }
 
   // Filter issues based on selected filters and search query
@@ -299,16 +298,19 @@ export default function MaintenancePage() {
 
     // Apply search query
     if (searchQuery) {
-      const query = searchQuery.toLowerCase()
+      const queryLower = searchQuery.toLowerCase()
       return (
-        issue.title.toLowerCase().includes(query) ||
-        issue.description.toLowerCase().includes(query) ||
-        issue.machineId.toLowerCase().includes(query)
+        issue.title.toLowerCase().includes(queryLower) ||
+        issue.description.toLowerCase().includes(queryLower) ||
+        issue.machineId.toLowerCase().includes(queryLower)
       )
     }
 
     return true
   })
+
+  // Get open issues (not resolved)
+  const openIssues = filteredIssues.filter(issue => issue.status !== "resolved")
 
   // Handle form changes with validation clearing
   const handleFormChange = (field: string, value: string) => {
@@ -325,7 +327,7 @@ export default function MaintenancePage() {
       setNewIssue({
         ...newIssue,
         [field]: value,
-        machineId: "", // Clear machine selection when lab changes
+        machineId: "",
       })
     } else {
       setNewIssue({
@@ -335,40 +337,33 @@ export default function MaintenancePage() {
     }
   }
 
-  // Handle issue creation with validation
+  // Create a new issue in Firestore
   const handleCreateIssue = async () => {
-    if (!validateForm()) {
+    if (!validateForm()) return
+
+    if (!userSession) {
+      setValidationErrors({ general: "You must be logged in to report an issue." })
       return
     }
 
     setIsSubmitting(true)
-
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      const newIssueObj: Issue = {
-        id: Math.max(...issues.map(i => i.id), 0) + 1,
-        ...newIssue,
+      await addDoc(collection(db, "maintenanceIssues"), {
+        lab: newIssue.lab,
         title: newIssue.title.trim(),
         description: newIssue.description.trim(),
-        machineId: newIssue.machineId.trim(),
+        category: newIssue.category,
+        severity: newIssue.severity,
         status: "reported",
-        reportedBy: "You",
-        reportedAt: new Date().toISOString(),
+        reportedBy: userSession.name,
+        machineId: newIssue.machineId.trim(),
         assignedTo: null,
+        createdAt: serverTimestamp(),
         updatedAt: null,
-      }
-      
-      const updatedIssues = [newIssueObj, ...issues]
-      setIssues(updatedIssues)
-      
-      // Save to localStorage
-      localStorage.setItem('maintenanceIssues', JSON.stringify(updatedIssues))
-      
+      })
+
+      // close & reset form
       setIsAddDialogOpen(false)
-      
-      // Reset form
       setNewIssue({
         lab: "",
         title: "",
@@ -378,9 +373,8 @@ export default function MaintenancePage() {
         machineId: "",
       })
       setValidationErrors({})
-      
-    } catch (error) {
-      console.error('Error creating issue:', error)
+    } catch (err) {
+      console.error("Error creating issue:", err)
       setValidationErrors({ general: "Failed to create issue. Please try again." })
     } finally {
       setIsSubmitting(false)
@@ -393,24 +387,23 @@ export default function MaintenancePage() {
     setIsViewDialogOpen(true)
   }
 
-  // Handle updating issue status
-  const handleUpdateStatus = (issueId: number, newStatus: string) => {
-    const updatedIssues = issues.map((issue) =>
-      issue.id === issueId
-        ? {
-            ...issue,
-            status: newStatus,
-            updatedAt: new Date().toISOString(),
-            assignedTo: newStatus === "in-progress" ? "Maintenance Team" : issue.assignedTo,
-          }
-        : issue,
-    )
-    setIssues(updatedIssues)
-    
-    // Save to localStorage
-    localStorage.setItem('maintenanceIssues', JSON.stringify(updatedIssues))
-    
-    setIsViewDialogOpen(false)
+  // Update status in Firestore (only for BCDR/Admin)
+  const handleUpdateStatus = async (issueId: string, newStatus: string) => {
+    if (!canUpdateStatus()) {
+      return
+    }
+
+    try {
+      const issueRef = doc(db, "maintenanceIssues", issueId)
+      await updateDoc(issueRef, {
+        status: newStatus,
+        assignedTo: newStatus === "in-progress" ? (userSession?.name ?? "Maintenance Team") : null,
+        updatedAt: serverTimestamp()
+      })
+      setIsViewDialogOpen(false)
+    } catch (err) {
+      console.error("Error updating status:", err)
+    }
   }
 
   // Get status badge color
@@ -425,11 +418,35 @@ export default function MaintenancePage() {
     return severityLevel ? severityLevel.color : "bg-gray-100 text-gray-800"
   }
 
-  // Format date for display
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "N/A"
-    const date = new Date(dateString)
-    return date.toLocaleString()
+  // Format date for display (handles Firestore Timestamp and strings)
+  const formatDate = (dateValue: any) => {
+    if (!dateValue) return "N/A"
+    try {
+      // Firestore Timestamp object has toDate()
+      if (typeof dateValue?.toDate === "function") {
+        return dateValue.toDate().toLocaleString()
+      }
+      // ISO string
+      if (typeof dateValue === "string") {
+        return new Date(dateValue).toLocaleString()
+      }
+      // fallback
+      return new Date(dateValue).toLocaleString()
+    } catch {
+      return "N/A"
+    }
+  }
+
+  // Show loading state while checking session
+  if (!userSession) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f4d92] mx-auto mb-4"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -445,182 +462,191 @@ export default function MaintenancePage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <h1 className="text-xl font-bold">Maintenance Issues</h1>
+            <div>
+              <h1 className="text-xl font-bold">Maintenance Issues</h1>
+              <p className="text-xs opacity-75">
+                {userSession.name} ({userSession.role}) - 
+                {canUpdateStatus() ? " Can manage issues" : " Can report and view issues"}
+              </p>
+            </div>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
-                <Plus className="h-4 w-4 mr-2" />
-                Report Issue
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Report Maintenance Issue</DialogTitle>
-                <DialogDescription>Report a new maintenance issue for a lab.</DialogDescription>
-              </DialogHeader>
-              
-              {validationErrors.general && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{validationErrors.general}</AlertDescription>
-                </Alert>
-              )}
+          
+          {canReportIssue() && (
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Report Issue
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Report Maintenance Issue</DialogTitle>
+                  <DialogDescription>Report a new maintenance issue for a lab.</DialogDescription>
+                </DialogHeader>
+                
+                {validationErrors.general && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{validationErrors.general}</AlertDescription>
+                  </Alert>
+                )}
 
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="lab" className="text-sm font-medium">
-                      Lab <span className="text-red-500">*</span>
-                    </Label>
-                    <Select value={newIssue.lab} onValueChange={(value) => handleFormChange("lab", value)}>
-                      <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select lab" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {labsData.map((lab) => (
-                          <SelectItem key={lab.id} value={lab.id}>
-                            Lab {lab.id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {validationErrors.lab && (
-                      <p className="text-sm text-red-500">{validationErrors.lab}</p>
-                    )}
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="lab" className="text-sm font-medium">
+                        Lab <span className="text-red-500">*</span>
+                      </Label>
+                      <Select value={newIssue.lab} onValueChange={(value) => handleFormChange("lab", value)}>
+                        <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
+                          <SelectValue placeholder="Select lab" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {labsData.map((lab) => (
+                            <SelectItem key={lab.id} value={lab.id}>
+                              Lab {lab.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {validationErrors.lab && (
+                        <p className="text-sm text-red-500">{validationErrors.lab}</p>
+                      )}
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="machineId" className="text-sm font-medium">
+                        Kiosk ID <span className="text-red-500">*</span>
+                      </Label>
+                      <Select 
+                        value={newIssue.machineId} 
+                        onValueChange={(value) => handleFormChange("machineId", value)}
+                        disabled={!newIssue.lab}
+                      >
+                        <SelectTrigger className={validationErrors.machineId ? "border-red-500" : ""}>
+                          <SelectValue placeholder={newIssue.lab ? "Select machine" : "Select lab first"} />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[200px]">
+                          {newIssue.lab && generateMachineIds(newIssue.lab).map((machine) => (
+                            <SelectItem key={machine.id} value={machine.value}>
+                              {machine.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {validationErrors.machineId && (
+                        <p className="text-sm text-red-500">{validationErrors.machineId}</p>
+                      )}
+                      {newIssue.lab && (
+                        <p className="text-xs text-muted-foreground">
+                          Lab {newIssue.lab} has {labsData.find(l => l.id === newIssue.lab)?.capacity} machines
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  
                   <div className="grid gap-2">
-                    <Label htmlFor="machineId" className="text-sm font-medium">
-                      Kiosk ID <span className="text-red-500">*</span>
+                    <Label htmlFor="title" className="text-sm font-medium">
+                      Issue Title <span className="text-red-500">*</span>
                     </Label>
-                    <Select 
-                      value={newIssue.machineId} 
-                      onValueChange={(value) => handleFormChange("machineId", value)}
-                      disabled={!newIssue.lab}
-                    >
-                      <SelectTrigger className={validationErrors.machineId ? "border-red-500" : ""}>
-                        <SelectValue placeholder={newIssue.lab ? "Select machine" : "Select lab first"} />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[200px]">
-                        {newIssue.lab && generateMachineIds(newIssue.lab).map((machine) => (
-                          <SelectItem key={machine.id} value={machine.value}>
-                            {machine.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {validationErrors.machineId && (
-                      <p className="text-sm text-red-500">{validationErrors.machineId}</p>
-                    )}
-                    {newIssue.lab && (
-                      <p className="text-xs text-muted-foreground">
-                        Lab {newIssue.lab} has {labsData.find(l => l.id === newIssue.lab)?.capacity} machines
-                      </p>
-                    )}
+                    <Input
+                      id="title"
+                      placeholder="Brief description of the issue"
+                      value={newIssue.title}
+                      onChange={(e) => handleFormChange("title", e.target.value)}
+                      maxLength={100}
+                      className={validationErrors.title ? "border-red-500" : ""}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{validationErrors.title && <span className="text-red-500">{validationErrors.title}</span>}</span>
+                      <span>{newIssue.title.length}/100</span>
+                    </div>
+                  </div>
+                  
+                  <div className="grid gap-2">
+                    <Label htmlFor="description" className="text-sm font-medium">
+                      Detailed Description <span className="text-red-500">*</span>
+                    </Label>
+                    <Textarea
+                      id="description"
+                      placeholder="Provide details about the issue, steps to reproduce, error messages, etc."
+                      value={newIssue.description}
+                      onChange={(e) => handleFormChange("description", e.target.value)}
+                      maxLength={500}
+                      rows={4}
+                      className={validationErrors.description ? "border-red-500" : ""}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{validationErrors.description && <span className="text-red-500">{validationErrors.description}</span>}</span>
+                      <span>{newIssue.description.length}/500</span>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="category" className="text-sm font-medium">
+                        Category <span className="text-red-500">*</span>
+                      </Label>
+                      <Select value={newIssue.category} onValueChange={(value) => handleFormChange("category", value)}>
+                        <SelectTrigger className={validationErrors.category ? "border-red-500" : ""}>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {issueCategories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {validationErrors.category && (
+                        <p className="text-sm text-red-500">{validationErrors.category}</p>
+                      )}
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="severity" className="text-sm font-medium">
+                        Severity <span className="text-red-500">*</span>
+                      </Label>
+                      <Select value={newIssue.severity} onValueChange={(value) => handleFormChange("severity", value)}>
+                        <SelectTrigger className={validationErrors.severity ? "border-red-500" : ""}>
+                          <SelectValue placeholder="Select severity" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {severityLevels.map((level) => (
+                            <SelectItem key={level.id} value={level.id}>
+                              {level.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>  
+                      </Select>
+                      {validationErrors.severity && (
+                        <p className="text-sm text-red-500">{validationErrors.severity}</p>
+                      )}
+                    </div>
                   </div>
                 </div>
                 
-                <div className="grid gap-2">
-                  <Label htmlFor="title" className="text-sm font-medium">
-                    Issue Title <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="title"
-                    placeholder="Brief description of the issue"
-                    value={newIssue.title}
-                    onChange={(e) => handleFormChange("title", e.target.value)}
-                    maxLength={100}
-                    className={validationErrors.title ? "border-red-500" : ""}
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>{validationErrors.title && <span className="text-red-500">{validationErrors.title}</span>}</span>
-                    <span>{newIssue.title.length}/100</span>
-                  </div>
-                </div>
-                
-                <div className="grid gap-2">
-                  <Label htmlFor="description" className="text-sm font-medium">
-                    Detailed Description <span className="text-red-500">*</span>
-                  </Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Provide details about the issue, steps to reproduce, error messages, etc."
-                    value={newIssue.description}
-                    onChange={(e) => handleFormChange("description", e.target.value)}
-                    maxLength={500}
-                    rows={4}
-                    className={validationErrors.description ? "border-red-500" : ""}
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>{validationErrors.description && <span className="text-red-500">{validationErrors.description}</span>}</span>
-                    <span>{newIssue.description.length}/500</span>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="category" className="text-sm font-medium">
-                      Category <span className="text-red-500">*</span>
-                    </Label>
-                    <Select value={newIssue.category} onValueChange={(value) => handleFormChange("category", value)}>
-                      <SelectTrigger className={validationErrors.category ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {issueCategories.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {validationErrors.category && (
-                      <p className="text-sm text-red-500">{validationErrors.category}</p>
-                    )}
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="severity" className="text-sm font-medium">
-                      Severity <span className="text-red-500">*</span>
-                    </Label>
-                    <Select value={newIssue.severity} onValueChange={(value) => handleFormChange("severity", value)}>
-                      <SelectTrigger className={validationErrors.severity ? "border-red-500" : ""}>
-                        <SelectValue placeholder="Select severity" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {severityLevels.map((level) => (
-                          <SelectItem key={level.id} value={level.id}>
-                            {level.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>  
-                    </Select>
-                    {validationErrors.severity && (
-                      <p className="text-sm text-red-500">{validationErrors.severity}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              <DialogFooter>
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setIsAddDialogOpen(false)
-                    setValidationErrors({})
-                  }}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleCreateIssue}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Reporting..." : "Report Issue"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setIsAddDialogOpen(false)
+                      setValidationErrors({})
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleCreateIssue}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Reporting..." : "Report Issue"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </header>
 
@@ -711,12 +737,17 @@ export default function MaintenancePage() {
                     <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
                     <h3 className="text-lg font-medium">No Issues Found</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      No maintenance issues match your current filters.
+                      {issues.length === 0 
+                        ? "No maintenance issues have been reported yet."
+                        : "No maintenance issues match your current filters."
+                      }
                     </p>
-                    <Button onClick={() => setIsAddDialogOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Report New Issue
-                    </Button>
+                    {canReportIssue() && (
+                      <Button onClick={() => setIsAddDialogOpen(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Report New Issue
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
@@ -763,58 +794,63 @@ export default function MaintenancePage() {
 
           <TabsContent value="open">
             <div className="space-y-4">
-              {filteredIssues.filter((issue) => issue.status !== "resolved").length === 0 ? (
+              {openIssues.length === 0 ? (
                 <Card>
                   <CardContent className="flex flex-col items-center justify-center py-8">
                     <AlertTriangle className="h-12 w-12 text-muted-foreground mb-4" />
                     <h3 className="text-lg font-medium">No Open Issues</h3>
-                    <p className="text-sm text-muted-foreground mb-4">There are no open maintenance issues.</p>
-                    <Button onClick={() => setIsAddDialogOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Report New Issue
-                    </Button>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {issues.filter(issue => issue.status !== "resolved").length === 0 
+                        ? "There are currently no open maintenance issues."
+                        : "No open maintenance issues match your current filters."
+                      }
+                    </p>
+                    {canReportIssue() && (
+                      <Button onClick={() => setIsAddDialogOpen(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Report New Issue
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
-                filteredIssues
-                  .filter((issue) => issue.status !== "resolved")
-                  .map((issue) => (
-                    <Card key={issue.id} className="overflow-hidden">
-                      <CardContent className="p-4">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div className="flex items-start gap-4">
-                            <div className="flex flex-col items-center">
-                              <Badge className={getStatusColor(issue.status)}>{issue.status}</Badge>
-                              <Badge variant="outline" className="mt-2">
-                                Lab {issue.lab}
+                openIssues.map((issue) => (
+                  <Card key={issue.id} className="overflow-hidden">
+                    <CardContent className="p-4">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className="flex flex-col items-center">
+                            <Badge className={getStatusColor(issue.status)}>{issue.status}</Badge>
+                            <Badge variant="outline" className="mt-2">
+                              Lab {issue.lab}
+                            </Badge>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-medium">{issue.title}</h3>
+                              <Badge className={getSeverityColor(issue.severity)}>
+                                {severityLevels.find((level) => level.id === issue.severity)?.name}
                               </Badge>
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-medium">{issue.title}</h3>
-                                <Badge className={getSeverityColor(issue.severity)}>
-                                  {severityLevels.find((level) => level.id === issue.severity)?.name}
-                                </Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground">
-                                Reported by {issue.reportedBy} on {formatDate(issue.reportedAt)}
-                              </p>
-                              <p className="text-sm mt-1 line-clamp-2">{issue.description}</p>
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                <Badge variant="outline">
-                                  {issueCategories.find((category) => category.id === issue.category)?.name}
-                                </Badge>
-                                {issue.machineId && <Badge variant="outline">Machine: {issue.machineId}</Badge>}
-                              </div>
+                            <p className="text-sm text-muted-foreground">
+                              Reported by {issue.reportedBy} on {formatDate(issue.reportedAt)}
+                            </p>
+                            <p className="text-sm mt-1 line-clamp-2">{issue.description}</p>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              <Badge variant="outline">
+                                {issueCategories.find((category) => category.id === issue.category)?.name}
+                              </Badge>
+                              {issue.machineId && <Badge variant="outline">Machine: {issue.machineId}</Badge>}
                             </div>
                           </div>
-                          <Button className="self-start md:self-center" onClick={() => handleViewIssue(issue)}>
-                            View Details
-                          </Button>
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
+                        <Button className="self-start md:self-center" onClick={() => handleViewIssue(issue)}>
+                          View Details
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
               )}
             </div>
           </TabsContent>
@@ -932,9 +968,21 @@ export default function MaintenancePage() {
                     <p className="text-sm">{formatDate(selectedIssue.updatedAt)}</p>
                   </div>
                 )}
+
+                {/* Role-based permission notice for Welcoming Team users */}
+                {userSession?.role === "Welcoming Team" && selectedIssue.status !== "resolved" && (
+                  <Alert>
+                    <Shield className="h-4 w-4" />
+                    <AlertDescription>
+                      Only BCDR and Admin users can update issue status. Contact them to progress this issue.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
+              
               <DialogFooter className="flex-col sm:flex-row gap-2">
-                {selectedIssue.status !== "resolved" && (
+                {/* Status update buttons - only for BCDR and Admin */}
+                {canUpdateStatus() && selectedIssue.status !== "resolved" && (
                   <>
                     {selectedIssue.status === "reported" && (
                       <Button
@@ -953,7 +1001,9 @@ export default function MaintenancePage() {
                     </Button>
                   </>
                 )}
-                {selectedIssue.status === "resolved" && (
+                
+                {/* Reopen button - only for BCDR and Admin */}
+                {canUpdateStatus() && selectedIssue.status === "resolved" && (
                   <Button
                     variant="outline"
                     onClick={() => handleUpdateStatus(selectedIssue.id, "reported")}
@@ -962,6 +1012,7 @@ export default function MaintenancePage() {
                     Reopen Issue
                   </Button>
                 )}
+                
                 <Button variant="outline" onClick={() => setIsViewDialogOpen(false)} className="w-full sm:w-auto">
                   Close
                 </Button>
