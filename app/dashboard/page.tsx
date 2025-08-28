@@ -168,7 +168,7 @@ export default function Dashboard() {
             </div>
 
             {/* ROLE-BASED ACCESS: Only show Team Management for Admin and TLA */}
-            {userSession.role !== "BCDR" && userSession.role !== "Welcoming Team" && (
+            {(userSession.role !== "BCDR" && userSession.role !== "Welcoming Team" ) ? (
               <div className="bg-card rounded-lg border shadow-sm p-6">
                 <div className="flex items-center gap-4">
                   <Users className="h-8 w-8 text-[#0f4d92]" />
@@ -181,6 +181,25 @@ export default function Dashboard() {
                   <Link href="/team">
                     <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
                       Manage Team
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+             ) : (
+
+              <div className="bg-card rounded-lg border shadow-sm p-6">
+                <div className="flex items-center gap-4">
+                  <Users className="h-8 w-8 text-[#0f4d92]" />
+                  <div>
+                    <h3 className="font-semibold">My Team</h3>
+                    <p className="text-sm text-muted-foreground">View team members</p>
+                  </div>
+               </div>
+                <div className="mt-4">
+                  <Link href="/team">
+                    <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                      View Team
                       <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </Link>

@@ -67,6 +67,16 @@ export default function TeamPage() {
   const [newMember, setNewMember] = useState({ name: "", email: "", role: "Welcoming Team" })
   const [editMember, setEditMember] = useState<Member | null>(null)
 
+  //NEW 28/08
+  const isAdmin = userSession?.role === "Admin"
+  const isBCDR = userSession?.role === "BCDR"
+  const isWelcoming = userSession?.role === "Welcoming Team"
+
+  // NEW 28/08 Filtered list of members to display
+  const displayedMembers = isAdmin
+  ? teamData
+  : teamData.filter(m => m.role === userSession?.role)
+
   // Check user authorization
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -85,11 +95,11 @@ export default function TeamPage() {
       }
       setUserSession(session)
 
-      // Check if user has access to team management
-      if (session.role === "BCDR") {
-        setIsAuthorized(false)
-      } else {
+      // Allow Admin, BCDR, Welcoming Team
+      if (["Admin", "BCDR", "Welcoming Team"].includes(session.role)) {
         setIsAuthorized(true)
+      } else {
+        setIsAuthorized(false)
       }
     }
   }, [router])
@@ -271,63 +281,65 @@ export default function TeamPage() {
               </Link>
             </Button>
             <div>
-              <h1 className="text-xl font-bold">Team Management</h1>
+              <h1 className="text-xl font-bold">{isAdmin ? "Team Management" : "My Team"}</h1>
               <p className="text-xs opacity-75">Logged in as: {userSession?.name} ({userSession?.role})</p>
             </div>
           </div>
 
           {/* Add Member Dialog */}
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
-                <UserPlus className="h-4 w-4 mr-2" /> Add Member
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Team Member</DialogTitle>
-                <DialogDescription>Add a new member to the team.</DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={newMember.name}
-                    onChange={e => setNewMember({ ...newMember, name: e.target.value })}
-                    placeholder="Enter full name"
-                  />
+          {isAdmin && (
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
+                  <UserPlus className="h-4 w-4 mr-2" /> Add Member
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Team Member</DialogTitle>
+                  <DialogDescription>Add a new member to the team.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Full Name</Label>
+                    <Input
+                      id="name"
+                      value={newMember.name}
+                      onChange={e => setNewMember({ ...newMember, name: e.target.value })}
+                      placeholder="Enter full name"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={newMember.email}
+                      onChange={e => setNewMember({ ...newMember, email: e.target.value })}
+                      placeholder="Enter email address"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="role">Role</Label>
+                    <Select value={newMember.role} onValueChange={value => setNewMember({ ...newMember, role: value })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Admin">Admin</SelectItem>
+                        <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
+                        <SelectItem value="BCDR">BCDR</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={newMember.email}
-                    onChange={e => setNewMember({ ...newMember, email: e.target.value })}
-                    placeholder="Enter email address"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select value={newMember.role} onValueChange={value => setNewMember({ ...newMember, role: value })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Admin">Admin</SelectItem>
-                      <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
-                      <SelectItem value="BCDR">BCDR</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleAddMember}>Add Member</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
+                  <Button onClick={handleAddMember}>Add Member</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            )}
         </div>
       </header>
 
@@ -338,7 +350,8 @@ export default function TeamPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {teamData.map(member => (
+              
+              {displayedMembers.map(member => (
                 <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
                   <div className="flex items-center gap-4">
                     <Avatar>
@@ -360,75 +373,78 @@ export default function TeamPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2">
-                    {/* Edit */}
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="icon" onClick={() => setEditMember(member)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Edit Team Member</DialogTitle>
-                          <DialogDescription>Update team member information.</DialogDescription>
-                        </DialogHeader>
-                        {editMember && (
-                          <div className="grid gap-4 py-4">
-                            <div className="grid gap-2">
-                              <Label htmlFor="edit-name">Full Name</Label>
-                              <Input
-                                id="edit-name"
-                                value={editMember.name}
-                                onChange={e => setEditMember({ ...editMember, name: e.target.value })}
-                              />
+                  {isAdmin && (
+                    <div className="flex items-center gap-2">
+                      
+                      {/* Edit */}
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={() => setEditMember(member)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Edit Team Member</DialogTitle>
+                            <DialogDescription>Update team member information.</DialogDescription>
+                          </DialogHeader>
+                          {editMember && (
+                            <div className="grid gap-4 py-4">
+                              <div className="grid gap-2">
+                                <Label htmlFor="edit-name">Full Name</Label>
+                                <Input
+                                  id="edit-name"
+                                  value={editMember.name}
+                                  onChange={e => setEditMember({ ...editMember, name: e.target.value })}
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="edit-email">Email</Label>
+                                <Input
+                                  id="edit-email"
+                                  type="email"
+                                  value={editMember.email}
+                                  onChange={e => setEditMember({ ...editMember, email: e.target.value })}
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="edit-role">Role</Label>
+                                <Select
+                                  value={editMember.role}
+                                  onValueChange={value => setEditMember({ ...editMember, role: value })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select role" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Admin">Admin</SelectItem>
+                                    <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
+                                    <SelectItem value="BCDR">BCDR</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
                             </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="edit-email">Email</Label>
-                              <Input
-                                id="edit-email"
-                                type="email"
-                                value={editMember.email}
-                                onChange={e => setEditMember({ ...editMember, email: e.target.value })}
-                              />
-                            </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="edit-role">Role</Label>
-                              <Select
-                                value={editMember.role}
-                                onValueChange={value => setEditMember({ ...editMember, role: value })}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select role" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Admin">Admin</SelectItem>
-                                  <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
-                                  <SelectItem value="BCDR">BCDR</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        )}
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
-                          <Button onClick={handleEditMember}>Save Changes</Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
+                          )}
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
+                            <Button onClick={handleEditMember}>Save Changes</Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
 
-                    {/* Toggle Status */}
-                    <Button variant="ghost" size="icon" onClick={() => handleStatusToggle(member.id)}>
-                      <Badge variant={member.status === "Active" ? "destructive" : "default"}>
-                        {member.status === "Active" ? "Deactivate" : "Activate"}
-                      </Badge>
-                    </Button>
+                      {/* Toggle Status */}
+                      <Button variant="ghost" size="icon" onClick={() => handleStatusToggle(member.id)}>
+                        <Badge variant={member.status === "Active" ? "destructive" : "default"}>
+                          {member.status === "Active" ? "Deactivate" : "Activate"}
+                        </Badge>
+                      </Button>
 
-                    {/* Delete */}
-                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteMember(member.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                      {/* Delete */}
+                      <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteMember(member.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
