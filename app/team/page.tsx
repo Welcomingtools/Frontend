@@ -21,7 +21,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle } from "lucide-react"
+import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
@@ -498,10 +498,10 @@ export default function TeamPage() {
               {displayedMembers.map(member => (
                 <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
                   <div className="flex items-center gap-4">
-                    <Avatar>
-                      <AvatarImage src={`/placeholder.svg?height=40&width=40`} />
-                      <AvatarFallback>
-                        {member.name.split(" ").map(n => n[0]).join("")}
+                    <Avatar className="h-10 w-10">
+                      <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${member.name}`} />
+                      <AvatarFallback className="bg-[#0f4d92] text-white">
+                        <User className="h-5 w-5" />
                       </AvatarFallback>
                     </Avatar>
                     <div>
