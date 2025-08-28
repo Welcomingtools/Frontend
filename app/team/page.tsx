@@ -11,6 +11,12 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  addDoc,
+  serverTimestamp,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
 } from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -48,6 +54,21 @@ type UserSession = {
   accountType: string
 }
 
+type Report = {
+  id: string
+  reportedUserId: string
+  reportedUserName: string
+  reportedUserEmail: string
+  reportedUserRole: string
+  reporterEmail: string
+  reporterName: string
+  reporterRole: string
+  reason: string                // issue type
+  details: string
+  status: "Submitted" | "Resolved" | "Under Review"
+  createdAt?: any               // Firestore Timestamp
+}
+
 // Utility function to generate random password
 function generateRandomPassword(length = 8) {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -67,6 +88,10 @@ export default function TeamPage() {
   const [newMember, setNewMember] = useState({ name: "", email: "", role: "Welcoming Team" })
   const [editMember, setEditMember] = useState<Member | null>(null)
 
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportTarget, setReportTarget] = useState<Member | null>(null)
+  const [reportForm, setReportForm] = useState({ reason: "Incorrect role", details: "" })
+  
   //NEW 28/08
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
@@ -76,6 +101,27 @@ export default function TeamPage() {
   const displayedMembers = isAdmin
   ? teamData
   : teamData.filter(m => m.role === userSession?.role)
+
+    // --- Feedback Hub state ---
+  const [reports, setReports] = useState<Report[]>([])
+  const [reportsLoading, setReportsLoading] = useState(true)
+
+  // Dialog state for viewing/editing a report
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const [activeReport, setActiveReport] = useState<Report | null>(null)
+
+  // Local form for editing (non-admin can edit reason/details; admin can update status)
+  const [reportEdit, setReportEdit] = useState({ reason: "", details: "", status: "Submitted" as Report["status"] })
+
+  // tiny util
+  const fmtDate = (ts?: any) => {
+    try {
+      const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
+      return d.toLocaleString()
+    } catch {
+      return "—"
+    }
+  }
 
   // Check user authorization
   useEffect(() => {
@@ -127,6 +173,42 @@ export default function TeamPage() {
 
     fetchMembers()
   }, [isAuthorized])
+
+  //Fetching Reports
+  useEffect(() => {
+  if (!userSession) return;
+
+  setReportsLoading(true);
+
+  const base = collection(db, "userReports");
+  const userEmail = (userSession.email || "").toLowerCase().trim(); // normalize
+
+  const q = isAdmin
+    ? query(base, orderBy("createdAt", "desc"))
+    : query(
+        base,
+        where("reporterEmail", "==", userEmail),
+        orderBy("createdAt", "desc")
+      );
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snap) => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Report[];
+      setReports(rows);
+      setReportsLoading(false);
+    },
+    (err) => {
+      console.error("Feedback Hub subscription error:", err);
+      setReportsLoading(false);
+    }
+  );
+
+  return () => unsubscribe();
+  }, [isAdmin, userSession?.email]);
+
+
+
 
   // Add new member
   const handleAddMember = async () => {
@@ -199,6 +281,68 @@ export default function TeamPage() {
       console.error("Error updating status:", err)
     }
   }
+
+  //Reporting feature
+  //REPORT HELPERS 
+  const openReport = (member: Member) => {
+    setReportTarget(member); // Member | null
+    setReportForm({ reason: "Incorrect role", details: "" });
+    setReportOpen(true);     // opens the "Create report" dialog
+  };
+
+  const submitReport = async () => {
+  if (!reportTarget || !userSession) return
+  try {
+    await addDoc(collection(db, "userReports"), {
+      reportedUserId: reportTarget.id,
+      reportedUserName: reportTarget.name,
+      reportedUserEmail: reportTarget.email.toLowerCase().trim(),
+      reportedUserRole: reportTarget.role,
+
+      reporterEmail: userSession.email.toLowerCase().trim(),
+      reporterName: userSession.name,
+      reporterRole: userSession.role,
+
+      reason: reportForm.reason,
+      details: reportForm.details,
+      status: "Submitted",
+      createdAt: serverTimestamp(),
+    })
+    setReportOpen(false)
+    alert("Report submitted. Thank you!")
+  } catch (e) {
+    console.error("Report failed:", e)
+    alert("Failed to submit report.")
+  }
+  }
+
+  const openReportDialog = (r: Report) => {
+  setActiveReport(r)
+  setReportEdit({ reason: r.reason, details: r.details, status: r.status })
+  setReportDialogOpen(true)
+  }
+
+  const saveReportEdits = async () => {
+    if (!activeReport) return
+    try {
+      const ref = doc(db, "userReports", activeReport.id)
+      // Non-admin: can edit reason/details only
+      // Admin: can change status (and may also update reason/details if you want—here we keep it status-only for admin)
+      if (isAdmin) {
+        await updateDoc(ref, { status: reportEdit.status })
+        setReports(prev => prev.map(r => r.id === activeReport.id ? { ...r, status: reportEdit.status as Report["status"] } : r))
+      } else {
+        await updateDoc(ref, { reason: reportEdit.reason, details: reportEdit.details })
+        setReports(prev => prev.map(r => r.id === activeReport.id ? { ...r, reason: reportEdit.reason, details: reportEdit.details } : r))
+      }
+      setReportDialogOpen(false)
+    } catch (e) {
+      console.error("Failed to update report:", e)
+      alert("Failed to update report")
+    }
+  }
+
+
 
   // Show loading state while checking authorization
   if (userSession === null) {
@@ -445,11 +589,218 @@ export default function TeamPage() {
                       </Button>
                     </div>
                   )}
+                  {/* Actions for non-admins: Report only */}
+                  {!isAdmin && (
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => openReport(member)}>
+                        Report
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
+        {/* FEEDBACK HUB */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>{isAdmin ? "Reports (All Users)" : "Feedback Hub"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {reportsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading reports…</p>
+            ) : reports.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {isAdmin ? "No reports have been filed yet." : "You haven't submitted any reports yet."}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {reports.map(r => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between border rounded-md p-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={r.status === "Submitted" ? "default" : "outline"}>{r.status}</Badge>
+                        <span className="text-sm text-muted-foreground">{fmtDate(r.createdAt)}</span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="font-medium">Filed on:</span> {r.reportedUserName} ({r.reportedUserRole})
+                      </div>
+                      <div className="text-sm">
+                        <span className="font-medium">Issue:</span> {r.reason}
+                      </div>
+                      {isAdmin && (
+                        <div className="text-xs text-muted-foreground">
+                          <span className="font-medium">Filed by:</span> {r.reporterName} &lt;{r.reporterEmail}&gt; ({r.reporterRole})
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => openReportDialog(r)}>
+                        View Details
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Report {reportTarget?.name}</DialogTitle>
+              <DialogDescription>Tell us what’s wrong. This will notify admins to review.</DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="reason">Reason</Label>
+                <Select
+                  value={reportForm.reason}
+                  onValueChange={(v) => setReportForm(p => ({ ...p, reason: v }))}
+                >
+                  <SelectTrigger id="reason">
+                    <SelectValue placeholder="Select a reason" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Negligence">Negligence</SelectItem>
+                    <SelectItem value="User left team">User left team</SelectItem>
+                    <SelectItem value="Misconduct/abuse">Misconduct/abuse</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="details">Details (optional)</Label>
+                <textarea
+                  id="details"
+                  className="min-h-[120px] border rounded-md p-2"
+                  value={reportForm.details}
+                  onChange={(e) => setReportForm(p => ({ ...p, details: e.target.value }))}
+                  placeholder="Add any context that will help admins review"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button>
+              <Button onClick={submitReport}>Submit Report</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {isAdmin ? "Report Details" : "Edit Your Report"}
+              </DialogTitle>
+              <DialogDescription>
+                {activeReport
+                  ? `Report on ${activeReport.reportedUserName} · ${fmtDate(activeReport.createdAt)}`
+                  : ""}
+              </DialogDescription>
+            </DialogHeader>
+
+            {activeReport && (
+              <div className="grid gap-4 py-2">
+                {/* Common info */}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-muted-foreground">Filed on</div>
+                    <div>{activeReport.reportedUserName} ({activeReport.reportedUserRole})</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Status</div>
+                    {isAdmin ? (
+                      <Select
+                        value={reportEdit.status}
+                        onValueChange={(v) => setReportEdit(p => ({ ...p, status: v as Report["status"] }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Submitted">Submitted</SelectItem>
+                          <SelectItem value="Under Review">Under Review</SelectItem>
+                          <SelectItem value="Resolved">Resolved</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Badge variant={activeReport.status === "Submitted" ? "default" : "outline"}>
+                        {activeReport.status}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {isAdmin && (
+                    <div className="col-span-2">
+                      <div className="text-muted-foreground">Filed by</div>
+                      <div>{activeReport.reporterName} &lt;{activeReport.reporterEmail}&gt; ({activeReport.reporterRole})</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Editable fields for non-admins */}
+                {!isAdmin && (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="report-reason">Issue Type</Label>
+                      <Select
+                        value={reportEdit.reason}
+                        onValueChange={(v) => setReportEdit(p => ({ ...p, reason: v }))}
+                      >
+                        <SelectTrigger id="report-reason">
+                          <SelectValue placeholder="Select a reason" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Incorrect role">Incorrect role</SelectItem>
+                          <SelectItem value="User left team">User left team</SelectItem>
+                          <SelectItem value="Misconduct/abuse">Misconduct/abuse</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="report-details">Details</Label>
+                      <textarea
+                        id="report-details"
+                        className="min-h-[120px] border rounded-md p-2"
+                        value={reportEdit.details}
+                        onChange={(e) => setReportEdit(p => ({ ...p, details: e.target.value }))}
+                        placeholder="Add more context…"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Read-only preview for Admin (optional) */}
+                {isAdmin && (
+                  <div className="grid gap-2">
+                    <Label>Submitted Details</Label>
+                    <div className="text-sm whitespace-pre-wrap border rounded-md p-3 bg-muted/30">
+                      <div className="mb-1"><span className="font-medium">Issue:</span> {activeReport.reason}</div>
+                      <div><span className="font-medium">Details:</span> {activeReport.details || "—"}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReportDialogOpen(false)}>Close</Button>
+              <Button onClick={saveReportEdits}>
+                {isAdmin ? "Save Status" : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )
