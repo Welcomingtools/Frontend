@@ -592,7 +592,7 @@ export default function TeamPage() {
                   {/* Actions for non-admins: Report only */}
                   {!isAdmin && (
                     <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => openReport(member)}>
+                      <Button variant="outline" size="sm" className="border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10" onClick={() => openReport(member)}>
                         Report
                       </Button>
                     </div>
