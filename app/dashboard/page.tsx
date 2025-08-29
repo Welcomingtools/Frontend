@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Server, Users, Activity, Calendar, CalendarRange, AlertTriangle, LogOut } from "lucide-react"
+import { ArrowRight, Server, Users, Activity, Calendar, CalendarRange, AlertTriangle, FileText, LogOut } from "lucide-react"
 
 type UserSession = {
   email: string
@@ -206,6 +206,24 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="bg-card rounded-lg border shadow-sm p-6">
+            <div className="flex items-center gap-4">
+              <FileText className="h-8 w-8 text-[#0f4d92]" />
+              <div>
+                <h3 className="font-semibold">Reports</h3>
+                <p className="text-sm text-muted-foreground">Generate and export activity reports</p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <Link href="/reports">
+                <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                  View Reports
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
           </div>
 
           <div className="rounded-lg border bg-card p-6">
