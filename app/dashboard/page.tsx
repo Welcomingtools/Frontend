@@ -67,6 +67,7 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* Second Header */}
       <main className="flex-1 container mx-auto p-4">
         <div className="space-y-6 py-6">
           <div className="space-y-2">
@@ -76,6 +77,7 @@ export default function Dashboard() {
             </p>
           </div>
 
+          {/* Lab Management Tab */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div className="bg-card rounded-lg border shadow-sm p-6">
               <div className="flex items-center gap-4">
@@ -95,6 +97,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Schedule Session Tab */}
             <div className="bg-card rounded-lg border shadow-sm p-6">
               <div className="flex items-center gap-4">
                 <Calendar className="h-8 w-8 text-[#0f4d92]" />
@@ -113,6 +116,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Lab Timetable Tab */}
             <div className="bg-card rounded-lg border shadow-sm p-6">
               <div className="flex items-center gap-4">
                 <CalendarRange className="h-8 w-8 text-[#0f4d92]" />
@@ -131,6 +135,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Maintenance Tab */}
             <div className="bg-card rounded-lg border shadow-sm p-6">
               <div className="flex items-center gap-4">
                 <AlertTriangle className="h-8 w-8 text-[#0f4d92]" />
@@ -149,6 +154,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Activity Tab */}
             <div className="bg-card rounded-lg border shadow-sm p-6">
               <div className="flex items-center gap-4">
                 <Activity className="h-8 w-8 text-[#0f4d92]" />
@@ -187,7 +193,6 @@ export default function Dashboard() {
                 </div>
               </div>
              ) : (
-
               <div className="bg-card rounded-lg border shadow-sm p-6">
                 <div className="flex items-center gap-4">
                   <Users className="h-8 w-8 text-[#0f4d92]" />
@@ -208,23 +213,27 @@ export default function Dashboard() {
             )}
           </div>
 
-          <div className="bg-card rounded-lg border shadow-sm p-6">
-            <div className="flex items-center gap-4">
-              <FileText className="h-8 w-8 text-[#0f4d92]" />
-              <div>
-                <h3 className="font-semibold">Reports</h3>
-                <p className="text-sm text-muted-foreground">Generate and export activity reports</p>
+            
+          {/* ROLE-BASED ACCESS: Only show Reports to Admins */}
+          {userSession.role === "Admin" && (
+            <div className="bg-card rounded-lg border shadow-sm p-6">
+              <div className="flex items-center gap-4">
+                <FileText className="h-8 w-8 text-[#0f4d92]" />
+                <div>
+                  <h3 className="font-semibold">Reports</h3>
+                  <p className="text-sm text-muted-foreground">View reports based on current operations, staff activity and maintenance</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Link href="/reports">
+                  <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                    View Reports
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
               </div>
             </div>
-            <div className="mt-4">
-              <Link href="/reports">
-                <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
-                  View Reports
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-          </div>
+          )}
 
           <div className="rounded-lg border bg-card p-6">
             <h3 className="font-semibold mb-2">About MSS Welcoming Team App</h3>
