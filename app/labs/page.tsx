@@ -94,6 +94,29 @@ export default function LabsOverview() {
           })
         }
       }
+    } else if (labId === "106") {
+      // Lab 106 has a custom layout with 16 machines
+      const lab106Layout = [
+        { row: 1, positions: 2 },
+        { row: 2, positions: 1 },
+        { row: 3, positions: 2 },
+        { row: 4, positions: 3 },
+        { row: 5, positions: 5 },
+        { row: 6, positions: 3 },
+      ]
+
+      for (const rowConfig of lab106Layout) {
+        for (let position = 1; position <= rowConfig.positions; position++) {
+          machineIndex++
+          machines.push({
+            id: `TWK-${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`,
+            labId,
+            row: rowConfig.row,
+            position,
+            isWorking: machineIndex <= machinesUp,
+          })
+        }
+      }
     } else {
       // Labs 108, 109, 110, 111 have different layouts
       const layouts = {
@@ -186,6 +209,16 @@ export default function LabsOverview() {
           name: "Lab 006",
           totalMachines: 100,
           machinesUp: getRandomMachinesUp(100),
+          machinesDown: 0,
+          status: "Available",
+          machines: [],
+          allocatedStudents: [],
+        },
+        {
+          id: "106",
+          name: "Lab 106",
+          totalMachines: 16,
+          machinesUp: getRandomMachinesUp(16),
           machinesDown: 0,
           status: "Available",
           machines: [],
@@ -553,7 +586,7 @@ export default function LabsOverview() {
           if (!allocated) {
             console.warn(`Could not allocate student ${student} - no available seats`)
             break
-          }
+            }
         }
         break
     }

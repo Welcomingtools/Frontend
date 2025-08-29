@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, Power, RefreshCw, Monitor, Wifi, Home, Globe, CheckCircle, XCircle, Loader2 } from "lucide-react"
+import { ArrowLeft, Power, RefreshCw, Monitor, Wifi, Home, Globe, CheckCircle, XCircle, Loader2, FileText, Users, HardDrive, Download, Shield, WifiOff, Activity } from "lucide-react"
 
 interface CommandResult {
   command: string
@@ -15,6 +15,7 @@ interface CommandResult {
   timestamp: string
   duration: number
   welcometoolsCommand?: string
+  description?: string
 }
 
 export default function LabCommandTest() {
@@ -50,8 +51,10 @@ export default function LabCommandTest() {
             line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
           ).filter((line: string) => line.length > 0)
           
-          if (command === 'list_machines') {
+          if (command.includes('listmachines')) {
             displayOutput = `✅ ${description} completed successfully\n\nMachines found:\n${cleanOutput.join('\n')}\n\nTotal: ${cleanOutput.length} machines`
+          } else if (command.includes('report')) {
+            displayOutput = `✅ ${description} completed successfully\n\nReport:\n${cleanOutput.join('\n')}`
           } else {
             displayOutput = `✅ ${description} completed successfully\n\n${cleanOutput.join('\n')}`
           }
@@ -68,10 +71,11 @@ export default function LabCommandTest() {
         output: displayOutput,
         timestamp: new Date().toLocaleTimeString(),
         duration: data.duration,
-        welcometoolsCommand: data.welcometoolsCommand
+        welcometoolsCommand: data.welcometoolsCommand,
+        description: data.description
       }
 
-      setResults(prev => [result, ...prev.slice(0, 9)]) // Keep last 10 results
+      setResults(prev => [result, ...prev.slice(0, 14)]) // Keep last 15 results
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -85,7 +89,7 @@ export default function LabCommandTest() {
         timestamp: new Date().toLocaleTimeString(),
         duration: 0
       }
-      setResults(prev => [result, ...prev.slice(0, 9)])
+      setResults(prev => [result, ...prev.slice(0, 14)])
     } finally {
       setIsLoading(null)
     }
@@ -103,11 +107,11 @@ export default function LabCommandTest() {
       const result: CommandResult = {
         command: "Health Check",
         success: true,
-        output: `✅ Server connection successful\n\nServer: ${data.server}\nStatus: ${data.status}\nAvailable commands: ${data.availableCommands?.join(', ') || 'None'}`,
+        output: `✅ Server connection successful\n\nServer: ${data.server}\nStatus: ${data.status}\nAvailable commands: ${data.availableCommands?.length || 0} total\n\nCommands: ${data.availableCommands?.join(', ') || 'None'}`,
         timestamp: new Date().toLocaleTimeString(),
         duration: 0
       }
-      setResults(prev => [result, ...prev.slice(0, 9)])
+      setResults(prev => [result, ...prev.slice(0, 14)])
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Health check failed: ${errorMessage}`)
@@ -116,71 +120,149 @@ export default function LabCommandTest() {
     }
   }
 
-  const commands = [
-    {
-      id: "list_machines",
-      name: "List Machines",
-      description: "Show all machines in Lab 106",
-      icon: <Monitor className="h-5 w-5" />,
-      color: "bg-blue-600 hover:bg-blue-700"
-    },
-    {
-      id: "power_on",
-      name: "Power On Lab",
-      description: "Boot all machines in the lab",
-      icon: <Power className="h-5 w-5" />,
-      color: "bg-green-600 hover:bg-green-700"
-    },
-    {
-      id: "power_off", 
-      name: "Power Off Lab",
-      description: "Shutdown all machines safely",
-      icon: <Power className="h-5 w-5" />,
-      color: "bg-red-600 hover:bg-red-700"
-    },
-    {
-      id: "reboot",
-      name: "Reboot All",
-      description: "Restart all machines",
-      icon: <RefreshCw className="h-5 w-5" />,
-      color: "bg-blue-600 hover:bg-blue-700"
-    },
-    {
-      id: "windows_boot",
-      name: "Enable Windows Boot",
-      description: "Configure machines to boot Windows",
-      icon: <Monitor className="h-5 w-5" />,
-      color: "bg-purple-600 hover:bg-purple-700"
-    },
-    {
-      id: "disable_internet",
-      name: "Disable Internet",
-      description: "Block internet access on all machines",
-      icon: <Wifi className="h-5 w-5" />,
-      color: "bg-orange-600 hover:bg-orange-700"
-    },
-    {
-      id: "enable_internet",
-      name: "Enable Internet",
-      description: "Allow internet access on all machines",
-      icon: <Globe className="h-5 w-5" />,
-      color: "bg-teal-600 hover:bg-teal-700"
-    },
-    {
-      id: "mount_home",
-      name: "Mount Home Dirs",
-      description: "Mount user home directories",
-      icon: <Home className="h-5 w-5" />,
-      color: "bg-indigo-600 hover:bg-indigo-700"
-    },
-    {
-      id: "cleanup_users",
-      name: "Cleanup Users",
-      description: "Clean up temporary user accounts",
-      icon: <RefreshCw className="h-5 w-5" />,
-      color: "bg-gray-600 hover:bg-gray-700"
-    }
-  ]
+  // All 18 commands organized by category
+  const commandCategories = {
+    'Power Management': [
+      {
+        id: "powerup",
+        name: "Power Up",
+        description: "Power up all machines in Lab 106",
+        icon: <Power className="h-5 w-5" />,
+        color: "bg-green-600 hover:bg-green-700"
+      },
+      {
+        id: "powerdown",
+        name: "Power Down",
+        description: "Power down all machines in Lab 106",
+        icon: <Power className="h-5 w-5" />,
+        color: "bg-red-600 hover:bg-red-700"
+      },
+      {
+        id: "reboot",
+        name: "Reboot All",
+        description: "Reboot all machines in Lab 106",
+        icon: <RefreshCw className="h-5 w-5" />,
+        color: "bg-blue-600 hover:bg-blue-700"
+      }
+    ],
+    'Machine Status': [
+      {
+        id: "listmachinesup",
+        name: "List Machines Up",
+        description: "Show machines that are powered up",
+        icon: <CheckCircle className="h-5 w-5" />,
+        color: "bg-emerald-600 hover:bg-emerald-700"
+      },
+      {
+        id: "listmachinesdown",
+        name: "List Machines Down",
+        description: "Show machines that are powered down",
+        icon: <XCircle className="h-5 w-5" />,
+        color: "bg-gray-600 hover:bg-gray-700"
+      }
+    ],
+    'Windows Management': [
+      {
+        id: "armwindows",
+        name: "Arm Windows",
+        description: "Enable Windows boot configuration",
+        icon: <Shield className="h-5 w-5" />,
+        color: "bg-purple-600 hover:bg-purple-700"
+      },
+      {
+        id: "disarmwindows",
+        name: "Disarm Windows",
+        description: "Disable Windows boot configuration",
+        icon: <Shield className="h-5 w-5" />,
+        color: "bg-purple-400 hover:bg-purple-500"
+      },
+      {
+        id: "windowsdown",
+        name: "Windows Down",
+        description: "Shutdown Windows on all machines",
+        icon: <Monitor className="h-5 w-5" />,
+        color: "bg-indigo-600 hover:bg-indigo-700"
+      }
+    ],
+    'User Management': [
+      {
+        id: "armvmusercleanup",
+        name: "Arm User Cleanup",
+        description: "Enable automatic user cleanup",
+        icon: <Users className="h-5 w-5" />,
+        color: "bg-orange-600 hover:bg-orange-700"
+      },
+      {
+        id: "disarmvmusercleanup",
+        name: "Disarm User Cleanup",
+        description: "Disable automatic user cleanup",
+        icon: <Users className="h-5 w-5" />,
+        color: "bg-orange-400 hover:bg-orange-500"
+      }
+    ],
+    'Home Directories': [
+      {
+        id: "armhomes",
+        name: "Arm Homes",
+        description: "Enable home directory mounting",
+        icon: <HardDrive className="h-5 w-5" />,
+        color: "bg-cyan-600 hover:bg-cyan-700"
+      },
+      {
+        id: "disarmhomes",
+        name: "Disarm Homes",
+        description: "Disable home directory mounting",
+        icon: <HardDrive className="h-5 w-5" />,
+        color: "bg-cyan-400 hover:bg-cyan-500"
+      }
+    ],
+    'Internet Control': [
+      {
+        id: "internetup",
+        name: "Internet Up",
+        description: "Enable internet access",
+        icon: <Wifi className="h-5 w-5" />,
+        color: "bg-teal-600 hover:bg-teal-700"
+      },
+      {
+        id: "internetdown",
+        name: "Internet Down",
+        description: "Disable internet access",
+        icon: <WifiOff className="h-5 w-5" />,
+        color: "bg-rose-600 hover:bg-rose-700"
+      }
+    ],
+    'Data & Reports': [
+      {
+        id: "handoutdata",
+        name: "Handout Data",
+        description: "Distribute data files to machines",
+        icon: <Download className="h-5 w-5" />,
+        color: "bg-lime-600 hover:bg-lime-700"
+      },
+      {
+        id: "reportwindows",
+        name: "Windows Report",
+        description: "Generate Windows status report",
+        icon: <FileText className="h-5 w-5" />,
+        color: "bg-violet-600 hover:bg-violet-700"
+      },
+      {
+        id: "reportvmuser",
+        name: "VM User Report",
+        description: "Generate VM user status report",
+        icon: <FileText className="h-5 w-5" />,
+        color: "bg-fuchsia-600 hover:bg-fuchsia-700"
+      },
+      {
+        id: "reportinternet",
+        name: "Internet Report",
+        description: "Generate internet status report",
+        icon: <FileText className="h-5 w-5" />,
+        color: "bg-amber-600 hover:bg-amber-700"
+      }
+    ]
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -194,8 +276,8 @@ export default function LabCommandTest() {
             <ArrowLeft className="h-6 w-6" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold">Command Testing Interface</h1>
-            <p className="text-sm opacity-80">Real lab control commands - Lab 106</p>
+            <h1 className="text-2xl font-bold">Complete Lab Command Interface</h1>
+            <p className="text-sm opacity-80">All 18 welcometools commands - Lab 106</p>
           </div>
         </div>
       </header>
@@ -209,7 +291,10 @@ export default function LabCommandTest() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Server Connection</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Server Connection
+            </CardTitle>
             <p className="text-sm text-muted-foreground">
               Command server: 10.100.15.252:3001
             </p>
@@ -230,51 +315,59 @@ export default function LabCommandTest() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Lab Control Commands</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Execute real commands on Lab 106 machines via welcometools server.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {commands.map((cmd) => (
-                <Button
-                  key={cmd.id}
-                  onClick={() => executeCommand(cmd.id, cmd.name)}
-                  disabled={isLoading !== null}
-                  className={`h-20 flex flex-col items-center gap-2 text-white ${cmd.color} relative`}
-                >
-                  {isLoading === cmd.id ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    cmd.icon
-                  )}
-                  <span className="text-xs font-medium">{cmd.name}</span>
-                  {isLoading === cmd.id && (
-                    <div className="absolute bottom-1 text-xs">
-                      Executing...
-                    </div>
-                  )}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Commands organized by category */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {Object.entries(commandCategories).map(([category, commands]) => (
+            <Card key={category}>
+              <CardHeader>
+                <CardTitle className="text-lg">{category}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {commands.length} command{commands.length > 1 ? 's' : ''} available
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {commands.map((cmd) => (
+                    <Button
+                      key={cmd.id}
+                      onClick={() => executeCommand(cmd.id, cmd.name)}
+                      disabled={isLoading !== null}
+                      className={`w-full ${cmd.color} text-white p-4 h-auto flex items-center gap-3 relative`}
+                    >
+                      {isLoading === cmd.id ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        cmd.icon
+                      )}
+                      <div className="text-left flex-1">
+                        <div className="font-medium text-sm">{cmd.name}</div>
+                        <div className="text-xs opacity-90">{cmd.description}</div>
+                      </div>
+                      {isLoading === cmd.id && (
+                        <div className="absolute bottom-1 right-2 text-xs">
+                          Executing...
+                        </div>
+                      )}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
         {results.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Command Results</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Real command executions from welcometools server
+                Recent command executions from welcometools server
               </p>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-96 overflow-y-auto">
                 {results.map((result, index) => (
-                  <div key={index} className="border rounded-lg p-4">
+                  <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
                         {result.success ? (
@@ -294,12 +387,12 @@ export default function LabCommandTest() {
                       </div>
                     </div>
                     {result.welcometoolsCommand && (
-                      <div className="text-xs text-gray-500 mb-2">
+                      <div className="text-xs text-gray-500 mb-2 font-mono">
                         Command: {result.welcometoolsCommand}
                       </div>
                     )}
-                    <pre className="text-sm bg-gray-50 p-3 rounded border overflow-x-auto whitespace-pre-wrap">
-                      {result.output}
+                    <pre className="text-sm bg-gray-50 p-3 rounded border overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
+                      {typeof result.output === 'string' ? result.output : result.output.join('\n')}
                     </pre>
                   </div>
                 ))}
@@ -310,21 +403,21 @@ export default function LabCommandTest() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Status</CardTitle>
+            <CardTitle>System Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div className="bg-green-50 border border-green-200 rounded p-4">
-                <h4 className="font-semibold text-green-900 mb-2">✅ Command Service Running</h4>
-                <p className="text-green-800">Node.js server active on 10.100.15.252:3001 with SSH connection to welcometools</p>
+                <h4 className="font-semibold text-green-900 mb-2">Command Service</h4>
+                <p className="text-green-800">Node.js server active with SSH connection to welcometools</p>
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded p-4">
-                <h4 className="font-semibold text-blue-900 mb-2">🔗 Real Commands Connected</h4>
-                <p className="text-blue-800">This interface now executes actual welcometools commands on Lab 106</p>
+                <h4 className="font-semibold text-blue-900 mb-2">All Commands Available</h4>
+                <p className="text-blue-800">Complete set of 18 welcometools commands for Lab 106</p>
               </div>
               <div className="bg-purple-50 border border-purple-200 rounded p-4">
-                <h4 className="font-semibold text-purple-900 mb-2">🚀 Ready for Integration</h4>
-                <p className="text-purple-800">Commands can be integrated into your main lab management workflow</p>
+                <h4 className="font-semibold text-purple-900 mb-2">Real Lab Control</h4>
+                <p className="text-purple-800">Interface executes actual commands on lab infrastructure</p>
               </div>
             </div>
           </CardContent>
