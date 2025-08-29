@@ -3,6 +3,21 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { db } from "@/firebase/clientApp"
+import {
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  addDoc,
+  serverTimestamp,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+} from "firebase/firestore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -115,29 +130,6 @@ const labsData = [
   { id: "110", name: "Lab 110", capacity: 50, rows: 5 },
   { id: "111", name: "Lab 111", capacity: 50, rows: 5 },
 ]
-
-// In-memory storage for session persistence (works in Claude artifacts)
-// This will persist data for the duration of the browser session
-let inMemorySessions: any[] | null = null
-
-const loadSessionsFromStorage = () => {
-  // If we have sessions in memory, return them
-  if (inMemorySessions !== null) {
-    console.log('Loading sessions from memory:', inMemorySessions)
-    return inMemorySessions
-  }
-  
-  // Otherwise, return initial data and store it in memory
-  console.log('Loading initial sessions and storing in memory')
-  inMemorySessions = [...initialSessions]
-  return inMemorySessions
-}
-
-const saveSessionsToStorage = (sessions: any[]) => {
-  // Save to in-memory storage
-  inMemorySessions = [...sessions]
-  console.log('Sessions saved to memory:', inMemorySessions)
-}
 
 // Form validation types
 interface ValidationErrors {
@@ -303,22 +295,52 @@ export default function SchedulePage() {
     }
   }, [toast])
 
-  // Load sessions on component mount
+  // Load sessions (real-time) for the selected day
   useEffect(() => {
-    console.log('Component mounted, loading sessions...')
-    const loadedSessions = loadSessionsFromStorage()
-    console.log('Loaded sessions:', loadedSessions)
-    setSessions(loadedSessions)
-    setIsLoading(false)
-  }, [])
+    setIsLoading(true);
 
-  // Save sessions whenever sessions change
-  useEffect(() => {
-    if (!isLoading && sessions.length > 0) {
-      console.log('Sessions changed, saving:', sessions)
-      saveSessionsToStorage(sessions)
+    let qref;
+    if (selectedView === "day") {
+      // Single day
+      qref = query(
+        collection(db, "sessions"),
+        where("date", "==", selectedDate),
+        orderBy("startTime")
+      );
+    } else {
+      // Whole week
+      const d = new Date(selectedDate);
+      const day = d.getDay(); // 0=Sun
+      const start = new Date(d); start.setDate(d.getDate() - day);
+      const end   = new Date(d); end.setDate(d.getDate() + (6 - day));
+      const toStr = (x: Date) => x.toISOString().split("T")[0];
+
+      qref = query(
+        collection(db, "sessions"),
+        where("date", ">=", toStr(start)),
+        where("date", "<=", toStr(end)),
+        orderBy("date"),
+        orderBy("startTime")
+      );
     }
-  }, [sessions, isLoading])
+
+    const unsub = onSnapshot(qref,
+      (snap) => {
+        const rows = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+        setSessions(rows);
+        setIsLoading(false);
+      },
+      (err) => {
+        console.error(err);
+        setIsLoading(false);
+        showToast("Failed to load sessions.", "error");
+      }
+    );
+
+    return () => unsub();
+  }, [selectedDate, selectedView]);
+
+
 
   // New session form state
   const [newSession, setNewSession] = useState({
@@ -343,17 +365,17 @@ export default function SchedulePage() {
   }, [selectedDate])
 
   // Filter sessions based on selected date (exclude cancelled sessions from main view)
-  const filteredSessions = sessions.filter((session) => {
-    if (session.status === "cancelled") return false
-    
-    if (selectedView === "day") {
-      return session.date === selectedDate
-    } else if (selectedView === "week") {
-      // Simple week filter - just show all sessions for demo
-      return true
+  // Query already scopes to Day or Week; just hide cancelled and sort.
+  const filteredSessions = sessions
+  .filter((s) => s.status !== "cancelled")
+  .sort((a, b) => {
+    // Same date → sort by startTime
+    if (a.date === b.date) {
+      return parseTime(a.startTime) - parseTime(b.startTime);
     }
-    return true
-  })
+    // Different dates → sort by date string
+    return a.date.localeCompare(b.date);
+  });
 
   // Toast notification function
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'error') => {
@@ -496,48 +518,38 @@ export default function SchedulePage() {
 
   // Handle session creation
   const handleCreateSession = async () => {
-    if (!validateForm()) {
-      return
-    }
-
-    setIsSubmitting(true)
+    if (!validateForm()) return;
+    setIsSubmitting(true);
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      const tv = validateTimeRange(newSession.startTime, newSession.endTime);
+      const needsReview = tv.duration > ADMIN_REVIEW_THRESHOLD;
 
-      // Check if session needs admin review (more than 4 hours)
-      const timeValidation = validateTimeRange(newSession.startTime, newSession.endTime)
-      const needsReview = timeValidation.duration > ADMIN_REVIEW_THRESHOLD
-      
-      const sessionStatus = needsReview ? "under_review" : "confirmed"
-
-      const newSessionObj = {
-        id: Math.max(...sessions.map(s => s.id), 0) + 1,
-        ...newSession,
-        purpose: newSession.purposeType === "other" ? newSession.customPurpose.trim() : newSession.purpose,
-        status: sessionStatus,
+      const docData = {
+        lab: newSession.lab,
+        date: newSession.date,                    // "YYYY-MM-DD"
+        startTime: newSession.startTime,          // "HH:MM"
+        endTime: newSession.endTime,              // "HH:MM"
+        purpose: newSession.purposeType === "other"
+          ? newSession.customPurpose.trim()
+          : newSession.purpose,
+        status: needsReview ? "under_review" : "confirmed",
+        configurations: { ...newSession.configurations },
         createdBy: userSession?.name || "You",
-      }
+        createdByEmail: userSession?.email || "",
+        createdAt: serverTimestamp(),
+      };
 
-      console.log('Creating new session:', newSessionObj)
-      const updatedSessions = [...sessions, newSessionObj]
-      console.log('Updated sessions array:', updatedSessions)
-      
-      setSessions(updatedSessions)
-      setIsAddDialogOpen(false)
-      
-      // Show appropriate success message
-      if (needsReview) {
-        showToast(
-          `Session scheduled successfully! It requires admin approval due to duration (${Math.round(timeValidation.duration / 60)} hours)`,
-          'warning'
-        )
-      } else {
-        showToast('Session scheduled successfully!', 'success')
-      }
-      
-      // Reset form
+      await addDoc(collection(db, "sessions"), docData);
+
+      setIsAddDialogOpen(false);
+      showToast(needsReview
+        ? `Session scheduled! It requires admin approval (${Math.round(tv.duration/60)}h).`
+        : "Session scheduled successfully!",
+        needsReview ? "warning" : "success"
+      );
+
+      // reset form
       setNewSession({
         lab: "",
         date: selectedDate,
@@ -546,40 +558,38 @@ export default function SchedulePage() {
         purposeType: "",
         purpose: "",
         customPurpose: "",
-        configurations: {
-          windows: false,
-          internet: true,
-          homes: true,
-          userCleanup: true,
-        },
-      })
-      setValidationErrors({})
-      
-      console.log('Session created successfully!')
-      
-    } catch (error) {
-      console.error('Error creating session:', error)
-      setValidationErrors({ general: "Failed to create session. Please try again." })
+        configurations: { windows: false, internet: true, homes: true, userCleanup: true },
+      });
+      setValidationErrors({});
+    } catch (e) {
+      console.error(e);
+      setValidationErrors({ general: "Failed to create session. Please try again." });
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
+
 
   // Handle session cancellation
-  const handleCancelSession = (sessionId: number) => {
-    const session = sessions.find(s => s.id === sessionId)
-    if (!session) return
+  const handleCancelSession = async (sessionId: string | number) => {
+    const s = sessions.find(x => x.id === sessionId);
+    if (!s) return;
 
-    if (window.confirm(`Are you sure you want to cancel the session "${session.purpose}" scheduled for ${formatDate(session.date)} at ${formatTime(session.startTime)}?\n\nThis action cannot be undone.`)) {
-      const updatedSessions = sessions.map(s => 
-        s.id === sessionId 
-          ? { ...s, status: "cancelled" }
-          : s
-      )
-      setSessions(updatedSessions)
-      showToast('Session cancelled successfully.', 'success')
+    const ok = window.confirm(
+      `Are you sure you want to cancel "${s.purpose}" on ${formatDate(s.date)} at ${formatTime(s.startTime)}?`
+    );
+    if (!ok) return;
+
+    try {
+      await updateDoc(doc(db, "sessions", String(sessionId)), { status: "cancelled" });
+      showToast("Session cancelled successfully.", "success");
+      // UI updates via onSnapshot
+    } catch (e) {
+      console.error(e);
+      showToast("Failed to cancel session.", "error");
     }
-  }
+  };
+
 
   // Navigate back to dashboard
   const handleBackToDashboard = () => {
