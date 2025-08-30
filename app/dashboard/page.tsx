@@ -133,24 +133,6 @@ export default function Dashboard() {
 
             <div className="bg-card rounded-lg border shadow-sm p-6">
               <div className="flex items-center gap-4">
-                <Monitor className="h-8 w-8 text-[#0f4d92]" />
-                <div>
-                  <h3 className="font-semibold">Test Commands</h3>
-                  <p className="text-sm text-muted-foreground">Test lab control commands</p>
-                </div>
-              </div>
-              <div className="mt-4">
-                <Link href="/test-commands">
-                  <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
-                    Test Commands
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
-
-            <div className="bg-card rounded-lg border shadow-sm p-6">
-              <div className="flex items-center gap-4">
                 <AlertTriangle className="h-8 w-8 text-[#0f4d92]" />
                 <div>
                   <h3 className="font-semibold">Maintenance Issues</h3>
