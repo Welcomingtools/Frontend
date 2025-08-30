@@ -1,4 +1,3 @@
-// LabsOverview.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -11,8 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye } from "lucide-react"
+import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+
+// Server configuration - SAME AS LabStatusPage
+const SERVER_BASE_URL = "http://10.100.15.252:3001"
 
 // Tooltip component
 const Tooltip = ({ children, content }: { children: React.ReactNode; content: string }) => {
@@ -42,7 +44,7 @@ interface Lab {
   totalMachines: number
   machinesUp: number
   machinesDown: number
-  status: "Available" | "In Use" | "Maintenance"
+  status: "Available" | "In Use" | "Maintenance" | "Loading"
   currentBooking?: {
     course: string
     instructor: string
@@ -51,6 +53,8 @@ interface Lab {
   }
   machines: Machine[]
   allocatedStudents: string[]
+  lastUpdated?: string
+  isLoading?: boolean
 }
 
 interface StudentAllocation {
@@ -74,6 +78,78 @@ export default function LabsOverview() {
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [importedStudents, setImportedStudents] = useState<string[]>([])
   const [inputMethod, setInputMethod] = useState<"manual" | "csv">("manual")
+
+  // Lab capacity data - SAME AS LabStatusPage
+  const labCapacities: Record<string, number> = {
+    "004": 100,
+    "005": 100,
+    "006": 100,
+    "106": 16,
+    "108": 50,
+    "109": 50,
+    "110": 50,
+    "111": 50,
+  }
+
+  // NEW: Function to fetch machine status from server
+  const fetchLabMachineStatus = async (labId: string): Promise<{ machinesUp: number; machinesDown: number; lastUpdated: string }> => {
+    try {
+      const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/listmachinesup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const totalMachines = labCapacities[labId] || 50
+        
+        if (data.success && data.machines && Array.isArray(data.machines)) {
+          const machinesUp = data.machines.length
+          return {
+            machinesUp,
+            machinesDown: totalMachines - machinesUp,
+            lastUpdated: new Date().toLocaleTimeString()
+          }
+        } else if (data.success && Array.isArray(data.output)) {
+          const cleanOutput = data.output.map((line: string) => 
+            line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
+          ).filter((line: string) => line.length > 0)
+          
+          const machinesUp = cleanOutput.length
+          return {
+            machinesUp,
+            machinesDown: totalMachines - machinesUp,
+            lastUpdated: new Date().toLocaleTimeString()
+          }
+        }
+      }
+      
+      // Fallback to previous values if request fails
+      throw new Error('Failed to fetch machine status')
+      
+    } catch (error) {
+      console.error(`Failed to fetch status for Lab ${labId}:`, error)
+      // Return current values as fallback
+      const currentLab = labs.find(l => l.id === labId)
+      if (currentLab) {
+        return {
+          machinesUp: currentLab.machinesUp,
+          machinesDown: currentLab.machinesDown,
+          lastUpdated: currentLab.lastUpdated || 'Unknown'
+        }
+      }
+      
+      // Final fallback
+      const totalMachines = labCapacities[labId] || 50
+      return {
+        machinesUp: 0,
+        machinesDown: totalMachines,
+        lastUpdated: 'Error'
+      }
+    }
+  }
 
   // Generate machines for each lab with the corrected TWK naming convention
   const generateMachines = (labId: string, totalMachines: number, machinesUp: number): Machine[] => {
@@ -173,112 +249,122 @@ export default function LabsOverview() {
     return machines
   }
 
-  // Generate random machines up (85-100% of total)
-  const getRandomMachinesUp = (total: number): number => {
-    const minPercentage = 85
-    const maxPercentage = 100
-    const percentage = Math.floor(Math.random() * (maxPercentage - minPercentage + 1)) + minPercentage
-    return Math.floor((percentage / 100) * total)
-  }
-
+  // UPDATED: useEffect to fetch real data from server
   useEffect(() => {
     const fetchLabs = async () => {
-      const mockLabs: Lab[] = [
-        {
-          id: "004",
-          name: "Lab 004",
-          totalMachines: 100,
-          machinesUp: getRandomMachinesUp(100),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "005",
-          name: "Lab 005",
-          totalMachines: 100,
-          machinesUp: getRandomMachinesUp(100),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "006",
-          name: "Lab 006",
-          totalMachines: 100,
-          machinesUp: getRandomMachinesUp(100),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "106",
-          name: "Lab 106",
-          totalMachines: 16,
-          machinesUp: getRandomMachinesUp(16),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "108",
-          name: "Lab 108",
-          totalMachines: 50,
-          machinesUp: getRandomMachinesUp(50),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "109",
-          name: "Lab 109",
-          totalMachines: 50,
-          machinesUp: getRandomMachinesUp(50),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "110",
-          name: "Lab 110",
-          totalMachines: 50,
-          machinesUp: getRandomMachinesUp(50),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-        {
-          id: "111",
-          name: "Lab 111",
-          totalMachines: 50,
-          machinesUp: getRandomMachinesUp(50),
-          machinesDown: 0,
-          status: "Available",
-          machines: [],
-          allocatedStudents: [],
-        },
-      ]
+      setIsLoading(true)
+      
+      // Initialize labs with loading state
+      const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+      const initialLabs: Lab[] = labIds.map(labId => ({
+        id: labId,
+        name: `Lab ${labId}`,
+        totalMachines: labCapacities[labId],
+        machinesUp: 0,
+        machinesDown: labCapacities[labId],
+        status: "Loading" as const,
+        machines: [],
+        allocatedStudents: [],
+        isLoading: true
+      }))
+      
+      setLabs(initialLabs)
+      setIsLoading(false)
 
-      // Generate machines after calculating machinesUp and set machinesDown
-      mockLabs.forEach(lab => {
-        lab.machines = generateMachines(lab.id, lab.totalMachines, lab.machinesUp)
-        lab.machinesDown = lab.totalMachines - lab.machinesUp
+      // Fetch real data for each lab
+      const labPromises = labIds.map(async (labId) => {
+        try {
+          const status = await fetchLabMachineStatus(labId)
+          return {
+            id: labId,
+            ...status
+          }
+        } catch (error) {
+          console.error(`Failed to fetch data for Lab ${labId}:`, error)
+          return {
+            id: labId,
+            machinesUp: 0,
+            machinesDown: labCapacities[labId],
+            lastUpdated: 'Error'
+          }
+        }
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      setLabs(mockLabs)
-      setIsLoading(false)
+      // Update labs as data comes in
+      const results = await Promise.allSettled(labPromises)
+      
+      setLabs(prevLabs => 
+        prevLabs.map(lab => {
+          const result = results.find(r => 
+            r.status === 'fulfilled' && r.value.id === lab.id
+          )
+          
+          if (result && result.status === 'fulfilled') {
+            const data = result.value
+            return {
+              ...lab,
+              machinesUp: data.machinesUp,
+              machinesDown: data.machinesDown,
+              lastUpdated: data.lastUpdated,
+              status: data.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+              machines: generateMachines(lab.id, lab.totalMachines, data.machinesUp),
+              isLoading: false
+            }
+          } else {
+            return {
+              ...lab,
+              status: "Maintenance" as const,
+              isLoading: false,
+              lastUpdated: 'Error'
+            }
+          }
+        })
+      )
     }
 
     fetchLabs()
   }, [])
+
+  // NEW: Function to refresh a specific lab's data
+  const refreshLabData = async (labId: string) => {
+    setLabs(prevLabs => 
+      prevLabs.map(lab => 
+        lab.id === labId ? { ...lab, isLoading: true } : lab
+      )
+    )
+
+    try {
+      const status = await fetchLabMachineStatus(labId)
+      
+      setLabs(prevLabs => 
+        prevLabs.map(lab => {
+          if (lab.id === labId) {
+            return {
+              ...lab,
+              machinesUp: status.machinesUp,
+              machinesDown: status.machinesDown,
+              lastUpdated: status.lastUpdated,
+              status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+              machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
+              isLoading: false
+            }
+          }
+          return lab
+        })
+      )
+    } catch (error) {
+      setLabs(prevLabs => 
+        prevLabs.map(lab => 
+          lab.id === labId ? { 
+            ...lab, 
+            isLoading: false, 
+            status: "Maintenance" as const,
+            lastUpdated: 'Error'
+          } : lab
+        )
+      )
+    }
+  }
 
   const showSuccessToast = (title: string, description: string) => {
     // Create a success toast notification
@@ -326,6 +412,8 @@ export default function LabsOverview() {
         return "bg-blue-500"
       case "Maintenance":
         return "bg-red-500"
+      case "Loading":
+        return "bg-gray-400"
       default:
         return "bg-gray-500"
     }
@@ -339,6 +427,8 @@ export default function LabsOverview() {
         return <Users className="h-4 w-4" />
       case "Maintenance":
         return <AlertTriangle className="h-4 w-4" />
+      case "Loading":
+        return <Loader2 className="h-4 w-4 animate-spin" />
       default:
         return <Monitor className="h-4 w-4" />
     }
@@ -1134,10 +1224,24 @@ export default function LabsOverview() {
                       <CardTitle className="text-xl">{lab.name}</CardTitle>
                       <CardDescription>{lab.totalMachines} machines</CardDescription>
                     </div>
-                    <Badge className={`${getStatusColor(lab.status)} text-white flex items-center gap-1`}>
-                      {getStatusIcon(lab.status)}
-                      {lab.status}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge className={`${getStatusColor(lab.status)} text-white flex items-center gap-1`}>
+                        {getStatusIcon(lab.status)}
+                        {lab.status}
+                      </Badge>
+                      {!lab.isLoading && (
+                        <Tooltip content="Refresh machine status for this lab">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => refreshLabData(lab.id)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
 
@@ -1147,10 +1251,19 @@ export default function LabsOverview() {
                     <div className="flex justify-between text-sm">
                       <span>Machines Online</span>
                       <span className="font-medium text-green-600">
-                        {lab.machinesUp}/{lab.totalMachines}
+                        {lab.isLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin inline" />
+                        ) : (
+                          `${lab.machinesUp}/${lab.totalMachines}`
+                        )}
                       </span>
                     </div>
-                    <Progress value={(lab.machinesUp / lab.totalMachines) * 100} className="h-2" />
+                    <Progress value={lab.isLoading ? 0 : (lab.machinesUp / lab.totalMachines) * 100} className="h-2" />
+                    {lab.lastUpdated && (
+                      <p className="text-xs text-gray-500">
+                        Last updated: {lab.lastUpdated}
+                      </p>
+                    )}
                   </div>
 
                   {/* Seat Allocation Summary */}

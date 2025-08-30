@@ -40,6 +40,7 @@ interface CommandResult {
   welcometoolsCommand?: string
   description?: string
   labId?: string
+  machines?: string[] // Added machines array to interface
 }
 
 interface SessionData {
@@ -94,7 +95,12 @@ export default function LabStatusPage() {
 
         if (response.ok) {
           const data = await response.json()
-          if (data.success && Array.isArray(data.output)) {
+          // Use machines array if available, otherwise fall back to output parsing
+          if (data.success && data.machines && Array.isArray(data.machines)) {
+            setMachinesUp(data.machines.length)
+            setMachinesDown(totalMachines - data.machines.length)
+            setLastUpdated(new Date().toLocaleTimeString())
+          } else if (data.success && Array.isArray(data.output)) {
             const cleanOutput = data.output.map((line: string) => 
               line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
             ).filter((line: string) => line.length > 0)
@@ -136,9 +142,13 @@ export default function LabStatusPage() {
       // Format output for display
       let displayOutput = ''
       if (data.success) {
-        if (Array.isArray(data.output) && data.output.length > 0) {
+        // Use machines array if available, otherwise fall back to output
+        const machinesList = data.machines && Array.isArray(data.machines) ? data.machines : 
+                            (Array.isArray(data.output) ? data.output : []);
+        
+        if (machinesList.length > 0) {
           // Clean up machine names (remove terminal control characters)
-          const cleanOutput = data.output.map((line: string) => 
+          const cleanOutput = machinesList.map((line: string) => 
             line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
           ).filter((line: string) => line.length > 0)
           
@@ -179,7 +189,8 @@ export default function LabStatusPage() {
         duration: data.duration,
         welcometoolsCommand: data.welcometoolsCommand,
         description: data.description,
-        labId: labId
+        labId: labId,
+        machines: data.machines // Include machines array in result
       }
 
       setCommandResults(prev => [result, ...prev.slice(0, 14)]) // Keep last 15 results
