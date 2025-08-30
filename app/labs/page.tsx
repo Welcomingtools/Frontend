@@ -10,11 +10,60 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2 } from "lucide-react"
+import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2, RefreshCw } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 // Server configuration - SAME AS LabStatusPage
 const SERVER_BASE_URL = "http://10.100.15.252:3001"
+
+// Global cache for lab data
+interface LabCache {
+  data: Lab[]
+  lastFetched: number
+  isInitialized: boolean
+}
+
+// Create a global cache object that persists across page navigation
+declare global {
+  interface Window {
+    labsCache?: LabCache
+  }
+}
+
+// Initialize global cache if it doesn't exist
+const getLabsCache = (): LabCache => {
+  if (typeof window !== 'undefined') {
+    if (!window.labsCache) {
+      window.labsCache = {
+        data: [],
+        lastFetched: 0,
+        isInitialized: false
+      }
+    }
+    return window.labsCache
+  }
+  return { data: [], lastFetched: 0, isInitialized: false }
+}
+
+const setLabsCache = (data: Lab[]) => {
+  if (typeof window !== 'undefined') {
+    window.labsCache = {
+      data: [...data],
+      lastFetched: Date.now(),
+      isInitialized: true
+    }
+  }
+}
+
+const clearLabsCache = () => {
+  if (typeof window !== 'undefined') {
+    window.labsCache = {
+      data: [],
+      lastFetched: 0,
+      isInitialized: false
+    }
+  }
+}
 
 // Tooltip component
 const Tooltip = ({ children, content }: { children: React.ReactNode; content: string }) => {
@@ -68,6 +117,7 @@ interface StudentAllocation {
 export default function LabsOverview() {
   const [labs, setLabs] = useState<Lab[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [studentNumbers, setStudentNumbers] = useState("")
   const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference">("fill-first")
   const [allocations, setAllocations] = useState<StudentAllocation[]>([])
@@ -132,12 +182,13 @@ export default function LabsOverview() {
     } catch (error) {
       console.error(`Failed to fetch status for Lab ${labId}:`, error)
       // Return current values as fallback
-      const currentLab = labs.find(l => l.id === labId)
-      if (currentLab) {
+      const cache = getLabsCache()
+      const cachedLab = cache.data.find(l => l.id === labId)
+      if (cachedLab) {
         return {
-          machinesUp: currentLab.machinesUp,
-          machinesDown: currentLab.machinesDown,
-          lastUpdated: currentLab.lastUpdated || 'Unknown'
+          machinesUp: cachedLab.machinesUp,
+          machinesDown: cachedLab.machinesDown,
+          lastUpdated: cachedLab.lastUpdated || 'Unknown'
         }
       }
       
@@ -249,83 +300,116 @@ export default function LabsOverview() {
     return machines
   }
 
-  // UPDATED: useEffect to fetch real data from server
+  // UPDATED: useEffect to check cache first, only fetch if needed
   useEffect(() => {
-    const fetchLabs = async () => {
-      setIsLoading(true)
-      
-      // Initialize labs with loading state
-      const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
-      const initialLabs: Lab[] = labIds.map(labId => ({
-        id: labId,
-        name: `Lab ${labId}`,
-        totalMachines: labCapacities[labId],
-        machinesUp: 0,
-        machinesDown: labCapacities[labId],
-        status: "Loading" as const,
-        machines: [],
-        allocatedStudents: [],
-        isLoading: true
-      }))
-      
-      setLabs(initialLabs)
+    const cache = getLabsCache()
+    
+    // If we have cached data, use it immediately
+    if (cache.isInitialized && cache.data.length > 0) {
+      setLabs(cache.data)
       setIsLoading(false)
-
-      // Fetch real data for each lab
-      const labPromises = labIds.map(async (labId) => {
-        try {
-          const status = await fetchLabMachineStatus(labId)
-          return {
-            id: labId,
-            ...status
-          }
-        } catch (error) {
-          console.error(`Failed to fetch data for Lab ${labId}:`, error)
-          return {
-            id: labId,
-            machinesUp: 0,
-            machinesDown: labCapacities[labId],
-            lastUpdated: 'Error'
-          }
-        }
-      })
-
-      // Update labs as data comes in
-      const results = await Promise.allSettled(labPromises)
-      
-      setLabs(prevLabs => 
-        prevLabs.map(lab => {
-          const result = results.find(r => 
-            r.status === 'fulfilled' && r.value.id === lab.id
-          )
-          
-          if (result && result.status === 'fulfilled') {
-            const data = result.value
-            return {
-              ...lab,
-              machinesUp: data.machinesUp,
-              machinesDown: data.machinesDown,
-              lastUpdated: data.lastUpdated,
-              status: data.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-              machines: generateMachines(lab.id, lab.totalMachines, data.machinesUp),
-              isLoading: false
-            }
-          } else {
-            return {
-              ...lab,
-              status: "Maintenance" as const,
-              isLoading: false,
-              lastUpdated: 'Error'
-            }
-          }
-        })
-      )
+      return
     }
 
-    fetchLabs()
+    // Only fetch if no cached data exists
+    fetchAllLabsData()
   }, [])
 
-  // NEW: Function to refresh a specific lab's data
+  // NEW: Separate function to fetch all labs data
+  const fetchAllLabsData = async () => {
+    setIsLoading(true)
+    
+    // Initialize labs with loading state
+    const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+    const initialLabs: Lab[] = labIds.map(labId => ({
+      id: labId,
+      name: `Lab ${labId}`,
+      totalMachines: labCapacities[labId],
+      machinesUp: 0,
+      machinesDown: labCapacities[labId],
+      status: "Loading" as const,
+      machines: [],
+      allocatedStudents: [],
+      isLoading: true
+    }))
+    
+    setLabs(initialLabs)
+    setIsLoading(false)
+
+    // Fetch real data for each lab
+    const labPromises = labIds.map(async (labId) => {
+      try {
+        const status = await fetchLabMachineStatus(labId)
+        return {
+          id: labId,
+          ...status
+        }
+      } catch (error) {
+        console.error(`Failed to fetch data for Lab ${labId}:`, error)
+        return {
+          id: labId,
+          machinesUp: 0,
+          machinesDown: labCapacities[labId],
+          lastUpdated: 'Error'
+        }
+      }
+    })
+
+    // Update labs as data comes in
+    const results = await Promise.allSettled(labPromises)
+    
+    const updatedLabs = initialLabs.map(lab => {
+      const result = results.find(r => 
+        r.status === 'fulfilled' && r.value.id === lab.id
+      )
+      
+      if (result && result.status === 'fulfilled') {
+        const data = result.value
+        return {
+          ...lab,
+          machinesUp: data.machinesUp,
+          machinesDown: data.machinesDown,
+          lastUpdated: data.lastUpdated,
+          status: data.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+          machines: generateMachines(lab.id, lab.totalMachines, data.machinesUp),
+          isLoading: false
+        }
+      } else {
+        return {
+          ...lab,
+          status: "Maintenance" as const,
+          isLoading: false,
+          lastUpdated: 'Error'
+        }
+      }
+    })
+
+    setLabs(updatedLabs)
+    // Cache the fetched data
+    setLabsCache(updatedLabs)
+  }
+
+  // NEW: Function to refresh all labs data
+  const refreshAllLabs = async () => {
+    setIsRefreshing(true)
+    
+    // Clear cache and fetch fresh data
+    clearLabsCache()
+    
+    try {
+      await fetchAllLabsData()
+      showSuccessToast(
+        "Labs Refreshed Successfully", 
+        "All lab data has been updated with the latest machine status"
+      )
+    } catch (error) {
+      showErrorToast("Refresh Failed", "Error refreshing lab data. Please try again.")
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  // UPDATED: Function to refresh a specific lab's data and update cache
   const refreshLabData = async (labId: string) => {
     setLabs(prevLabs => 
       prevLabs.map(lab => 
@@ -336,33 +420,36 @@ export default function LabsOverview() {
     try {
       const status = await fetchLabMachineStatus(labId)
       
-      setLabs(prevLabs => 
-        prevLabs.map(lab => {
-          if (lab.id === labId) {
-            return {
-              ...lab,
-              machinesUp: status.machinesUp,
-              machinesDown: status.machinesDown,
-              lastUpdated: status.lastUpdated,
-              status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-              machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
-              isLoading: false
-            }
+      const updatedLabs = labs.map(lab => {
+        if (lab.id === labId) {
+          return {
+            ...lab,
+            machinesUp: status.machinesUp,
+            machinesDown: status.machinesDown,
+            lastUpdated: status.lastUpdated,
+            status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+            machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
+            isLoading: false
           }
-          return lab
-        })
-      )
+        }
+        return lab
+      })
+
+      setLabs(updatedLabs)
+      // Update cache with new data
+      setLabsCache(updatedLabs)
+      
     } catch (error) {
-      setLabs(prevLabs => 
-        prevLabs.map(lab => 
-          lab.id === labId ? { 
-            ...lab, 
-            isLoading: false, 
-            status: "Maintenance" as const,
-            lastUpdated: 'Error'
-          } : lab
-        )
+      const updatedLabs = labs.map(lab => 
+        lab.id === labId ? { 
+          ...lab, 
+          isLoading: false, 
+          status: "Maintenance" as const,
+          lastUpdated: 'Error'
+        } : lab
       )
+      setLabs(updatedLabs)
+      setLabsCache(updatedLabs)
     }
   }
 
@@ -685,6 +772,9 @@ export default function LabsOverview() {
     setAllocations(newAllocations)
     setError("")
 
+    // Update cache with new allocation data
+    setLabsCache(updatedLabs)
+
     // Show success notification
     showSuccessToast(
       "Seating Plan Generated Successfully!",
@@ -695,21 +785,24 @@ export default function LabsOverview() {
   }
 
   const clearAllAllocations = () => {
-    setLabs((prev) =>
-      prev.map((lab) => ({
-        ...lab,
-        allocatedStudents: [],
-        machines: lab.machines.map((machine) => ({
-          ...machine,
-          assignedStudent: undefined,
-        })),
+    const clearedLabs = labs.map((lab) => ({
+      ...lab,
+      allocatedStudents: [],
+      machines: lab.machines.map((machine) => ({
+        ...machine,
+        assignedStudent: undefined,
       })),
-    )
+    }))
+    
+    setLabs(clearedLabs)
     setAllocations([])
     setStudentNumbers("")
     setCsvFile(null)
     setImportedStudents([])
     setError("")
+
+    // Update cache with cleared allocations
+    setLabsCache(clearedLabs)
 
     showSuccessToast("Allocations Cleared", "All seat allocations have been cleared successfully")
   }
@@ -942,7 +1035,13 @@ export default function LabsOverview() {
           </div>
         </header>
         <main className="container mx-auto p-6">
-          <div className="text-center">Loading labs...</div>
+          <div className="flex flex-col items-center justify-center space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            <div className="text-center">
+              <h2 className="text-lg font-medium text-gray-700">Loading Lab Data</h2>
+              <p className="text-sm text-gray-500">Fetching real-time machine status across all labs...</p>
+            </div>
+          </div>
         </main>
       </div>
     )
@@ -951,15 +1050,42 @@ export default function LabsOverview() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-[#1e40af] text-white p-4">
-        <div className="container mx-auto flex items-center gap-4">
-          <Link 
-            href="/dashboard"
-            className="cursor-pointer hover:bg-blue-600 p-1 rounded"
-            title="Go to dashboard"
-          >
-            <ArrowLeft className="h-6 w-6" />
-          </Link>
-          <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
+        <div className="container mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link 
+              href="/dashboard"
+              className="cursor-pointer hover:bg-blue-600 p-1 rounded"
+              title="Go to dashboard"
+            >
+              <ArrowLeft className="h-6 w-6" />
+            </Link>
+            <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
+          </div>
+          
+          {/* NEW: Global Refresh Button */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-blue-100">
+              {getLabsCache().lastFetched > 0 && (
+                `Last updated: ${new Date(getLabsCache().lastFetched).toLocaleTimeString()}`
+              )}
+            </span>
+            <Tooltip content="Refresh all lab data to get the latest machine status">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={refreshAllLabs}
+                disabled={isRefreshing}
+                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+              >
+                {isRefreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                {isRefreshing ? "Refreshing..." : "Refresh All Labs"}
+              </Button>
+            </Tooltip>
+          </div>
         </div>
       </header>
 
@@ -968,6 +1094,21 @@ export default function LabsOverview() {
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+
+        {/* Cache Status Indicator */}
+        {getLabsCache().isInitialized && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-blue-700">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-sm font-medium">Using cached lab data</span>
+              </div>
+              <div className="text-xs text-blue-600">
+                Fetched: {new Date(getLabsCache().lastFetched).toLocaleString()}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Seating Plan Generator */}
@@ -1230,7 +1371,7 @@ export default function LabsOverview() {
                         {lab.status}
                       </Badge>
                       {!lab.isLoading && (
-                        <Tooltip content="Refresh machine status for this lab">
+                        <Tooltip content="Refresh machine status for this lab only">
                           <Button
                             variant="ghost"
                             size="sm"
