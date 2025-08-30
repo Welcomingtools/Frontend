@@ -316,99 +316,149 @@ export default function LabsOverview() {
   }, [])
 
   // NEW: Separate function to fetch all labs data
-  const fetchAllLabsData = async () => {
-    setIsLoading(true)
-    
-    // Initialize labs with loading state
-    const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
-    const initialLabs: Lab[] = labIds.map(labId => ({
-      id: labId,
-      name: `Lab ${labId}`,
-      totalMachines: labCapacities[labId],
-      machinesUp: 0,
-      machinesDown: labCapacities[labId],
-      status: "Loading" as const,
-      machines: [],
-      allocatedStudents: [],
-      isLoading: true
-    }))
-    
-    setLabs(initialLabs)
-    setIsLoading(false)
+  // Replace the fetchAllLabsData function with this updated version:
 
-    // Fetch real data for each lab
-    const labPromises = labIds.map(async (labId) => {
+const fetchAllLabsData = async () => {
+  setIsLoading(true)
+  
+  // Initialize labs with loading state
+  const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+  const initialLabs: Lab[] = labIds.map(labId => ({
+    id: labId,
+    name: `Lab ${labId}`,
+    totalMachines: labCapacities[labId],
+    machinesUp: 0,
+    machinesDown: labCapacities[labId],
+    status: "Loading" as const,
+    machines: [],
+    allocatedStudents: [],
+    isLoading: true
+  }))
+  
+  setLabs(initialLabs)
+  setIsLoading(false) // Show the loading cards immediately
+
+  // Fetch data for each lab individually and update as soon as each completes
+  labIds.forEach(async (labId) => {
+    try {
+      const status = await fetchLabMachineStatus(labId)
+      
+      // Update only this specific lab as soon as its data is ready
+      setLabs(prevLabs => {
+        const updatedLabs = prevLabs.map(lab => {
+          if (lab.id === labId) {
+            return {
+              ...lab,
+              machinesUp: status.machinesUp,
+              machinesDown: status.machinesDown,
+              lastUpdated: status.lastUpdated,
+              status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+              machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
+              isLoading: false
+            }
+          }
+          return lab
+        })
+        
+        // Update cache immediately when any lab data changes
+        setLabsCache(updatedLabs)
+        return updatedLabs
+      })
+      
+    } catch (error) {
+      console.error(`Failed to fetch data for Lab ${labId}:`, error)
+      
+      // Update this lab to show error state
+      setLabs(prevLabs => {
+        const updatedLabs = prevLabs.map(lab => 
+          lab.id === labId ? { 
+            ...lab, 
+            isLoading: false, 
+            status: "Maintenance" as const,
+            lastUpdated: 'Error'
+          } : lab
+        )
+        setLabsCache(updatedLabs)
+        return updatedLabs
+      })
+    }
+  })
+}
+
+// Also update the refreshAllLabs function for consistency:
+
+const refreshAllLabs = async () => {
+  setIsRefreshing(true)
+  
+  // Clear cache
+  clearLabsCache()
+  
+  // Set all labs to loading state
+  setLabs(prevLabs => 
+    prevLabs.map(lab => ({ ...lab, isLoading: true, status: "Loading" as const }))
+  )
+  
+  try {
+    const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+    
+    // Fetch each lab individually and update progressively
+    const refreshPromises = labIds.map(async (labId) => {
       try {
         const status = await fetchLabMachineStatus(labId)
-        return {
-          id: labId,
-          ...status
-        }
+        
+        // Update this specific lab immediately when its data is ready
+        setLabs(prevLabs => {
+          const updatedLabs = prevLabs.map(lab => {
+            if (lab.id === labId) {
+              return {
+                ...lab,
+                machinesUp: status.machinesUp,
+                machinesDown: status.machinesDown,
+                lastUpdated: status.lastUpdated,
+                status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+                machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
+                isLoading: false
+              }
+            }
+            return lab
+          })
+          
+          // Update cache with the new data
+          setLabsCache(updatedLabs)
+          return updatedLabs
+        })
+        
       } catch (error) {
-        console.error(`Failed to fetch data for Lab ${labId}:`, error)
-        return {
-          id: labId,
-          machinesUp: 0,
-          machinesDown: labCapacities[labId],
-          lastUpdated: 'Error'
-        }
+        console.error(`Failed to refresh Lab ${labId}:`, error)
+        
+        setLabs(prevLabs => {
+          const updatedLabs = prevLabs.map(lab => 
+            lab.id === labId ? { 
+              ...lab, 
+              isLoading: false, 
+              status: "Maintenance" as const,
+              lastUpdated: 'Error'
+            } : lab
+          )
+          setLabsCache(updatedLabs)
+          return updatedLabs
+        })
       }
     })
-
-    // Update labs as data comes in
-    const results = await Promise.allSettled(labPromises)
     
-    const updatedLabs = initialLabs.map(lab => {
-      const result = results.find(r => 
-        r.status === 'fulfilled' && r.value.id === lab.id
-      )
-      
-      if (result && result.status === 'fulfilled') {
-        const data = result.value
-        return {
-          ...lab,
-          machinesUp: data.machinesUp,
-          machinesDown: data.machinesDown,
-          lastUpdated: data.lastUpdated,
-          status: data.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-          machines: generateMachines(lab.id, lab.totalMachines, data.machinesUp),
-          isLoading: false
-        }
-      } else {
-        return {
-          ...lab,
-          status: "Maintenance" as const,
-          isLoading: false,
-          lastUpdated: 'Error'
-        }
-      }
-    })
-
-    setLabs(updatedLabs)
-    // Cache the fetched data
-    setLabsCache(updatedLabs)
+    // Wait for all labs to complete (for the success message)
+    await Promise.allSettled(refreshPromises)
+    
+    showSuccessToast(
+      "Labs Refreshed Successfully", 
+      "All lab data has been updated with the latest machine status"
+    )
+  } catch (error) {
+    showErrorToast("Refresh Failed", "Error refreshing lab data. Please try again.")
+  } finally {
+    setIsRefreshing(false)
   }
-
-  // NEW: Function to refresh all labs data
-  const refreshAllLabs = async () => {
-    setIsRefreshing(true)
-    
-    // Clear cache and fetch fresh data
-    clearLabsCache()
-    
-    try {
-      await fetchAllLabsData()
-      showSuccessToast(
-        "Labs Refreshed Successfully", 
-        "All lab data has been updated with the latest machine status"
-      )
-    } catch (error) {
-      showErrorToast("Refresh Failed", "Error refreshing lab data. Please try again.")
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
-
+}
   // UPDATED: Function to refresh a specific lab's data and update cache
   const refreshLabData = async (labId: string) => {
     setLabs(prevLabs => 
