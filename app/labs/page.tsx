@@ -1081,10 +1081,10 @@ const refreshAllLabs = async () => {
           >
             <ArrowLeft className="h-6 w-6" />
           </Link>
-            <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">TW Kambule Laboratories</h1>
           </div>
         </header>
-        <main className="container mx-auto p-6">
+        <main className="container mx-auto p-4 sm:p-6">
           <div className="flex flex-col items-center justify-center space-y-4">
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
             <div className="text-center">
@@ -1100,58 +1100,62 @@ const refreshAllLabs = async () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-[#1e40af] text-white p-4">
-        <div className="container mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link 
-              href="/dashboard"
-              className="cursor-pointer hover:bg-blue-600 p-1 rounded"
-              title="Go to dashboard"
-            >
-              <ArrowLeft className="h-6 w-6" />
-            </Link>
-            <h1 className="text-2xl font-bold">TW Kambule Laboratories</h1>
-          </div>
-          
-          {/* NEW: Global Refresh Button */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-blue-100">
-              {getLabsCache().lastFetched > 0 && (
-                `Last updated: ${new Date(getLabsCache().lastFetched).toLocaleTimeString()}`
-              )}
-            </span>
-            <Tooltip content="Refresh all lab data to get the latest machine status">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshAllLabs}
-                disabled={isRefreshing}
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+        <div className="container mx-auto">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <Link 
+                href="/dashboard"
+                className="cursor-pointer hover:bg-blue-600 p-1 rounded"
+                title="Go to dashboard"
               >
-                {isRefreshing ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
+                <ArrowLeft className="h-5 w-5 sm:h-6 sm:w-6" />
+              </Link>
+              <h1 className="text-lg sm:text-2xl font-bold">TW Kambule Labs</h1>
+            </div>
+            
+            {/* Updated: Mobile-friendly refresh button */}
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:block text-sm text-blue-100">
+                {getLabsCache().lastFetched > 0 && (
+                  `Last updated: ${new Date(getLabsCache().lastFetched).toLocaleTimeString()}`
                 )}
-                {isRefreshing ? "Refreshing..." : "Refresh All Labs"}
-              </Button>
-            </Tooltip>
+              </span>
+              <Tooltip content="Refresh all lab data to get the latest machine status">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={refreshAllLabs}
+                  disabled={isRefreshing}
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20 text-xs sm:text-sm"
+                >
+                  {isRefreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin sm:mr-2" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 sm:mr-2" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {isRefreshing ? "Refreshing..." : "Refresh All Labs"}
+                  </span>
+                </Button>
+              </Tooltip>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto p-6 space-y-6">
+      <main className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
         {error && (
           <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription className="text-sm">{error}</AlertDescription>
           </Alert>
         )}
 
-        {/* Cache Status Indicator */}
+        {/* Cache Status Indicator - Mobile optimized */}
         {getLabsCache().isInitialized && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-blue-700">
-                <CheckCircle2 className="h-4 w-4" />
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
                 <span className="text-sm font-medium">Using cached lab data</span>
               </div>
               <div className="text-xs text-blue-600">
@@ -1161,32 +1165,32 @@ const refreshAllLabs = async () => {
           </div>
         )}
 
-        {/* Seating Plan Generator */}
+        {/* Seating Plan Generator - Mobile optimized */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
               <UserPlus className="h-5 w-5" />
               Generate Seating Plan
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-sm">
               Allocate students across all available labs. Total capacity: {getTotalAvailableSeats()} seats
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Required Information Section */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+          <CardContent className="space-y-4 sm:space-y-6">
+            {/* Required Information Section - Mobile optimized */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+              <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2 text-sm sm:text-base">
                 <Calendar className="h-4 w-4" />
                 Required Information
               </h4>
               
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-4 sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:gap-4 sm:space-y-0">
                 <div>
-                  <Label htmlFor="examType" className="text-blue-900">
+                  <Label htmlFor="examType" className="text-blue-900 text-sm">
                     Exam Type <span className="text-red-500">*</span>
                   </Label>
                   <Select value={examType} onValueChange={(value: any) => setExamType(value)}>
-                    <SelectTrigger className="border-blue-200">
+                    <SelectTrigger className="border-blue-200 mt-1">
                       <SelectValue placeholder="Select exam type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1197,7 +1201,7 @@ const refreshAllLabs = async () => {
                 </div>
                 
                 <div>
-                  <Label htmlFor="examDate" className="text-blue-900">
+                  <Label htmlFor="examDate" className="text-blue-900 text-sm">
                     Date <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -1205,12 +1209,12 @@ const refreshAllLabs = async () => {
                     type="date"
                     value={examDate}
                     onChange={(e) => setExamDate(e.target.value)}
-                    className="border-blue-200"
+                    className="border-blue-200 mt-1"
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="examName" className="text-blue-900">
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <Label htmlFor="examName" className="text-blue-900 text-sm">
                     Exam/Test Name <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -1218,15 +1222,15 @@ const refreshAllLabs = async () => {
                     placeholder="e.g., Computer Science Mid-term"
                     value={examName}
                     onChange={(e) => setExamName(e.target.value)}
-                    className="border-blue-200"
+                    className="border-blue-200 mt-1"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
               <div className="space-y-4">
-                {/* Student Input Method Selection */}
+                {/* Student Input Method Selection - Mobile optimized */}
                 <div>
                   <Label className="text-sm font-medium">Student Numbers Input Method</Label>
                   <div className="flex gap-2 mt-2">
@@ -1240,7 +1244,7 @@ const refreshAllLabs = async () => {
                           setImportedStudents([])
                           setCsvFile(null)
                         }}
-                        className="flex-1"
+                        className="flex-1 text-xs sm:text-sm"
                       >
                         Manual Entry
                       </Button>
@@ -1251,7 +1255,7 @@ const refreshAllLabs = async () => {
                         variant={inputMethod === "csv" ? "default" : "outline"}
                         size="sm"
                         onClick={() => setInputMethod("csv")}
-                        className="flex-1"
+                        className="flex-1 text-xs sm:text-sm"
                       >
                         CSV Import
                       </Button>
@@ -1259,17 +1263,17 @@ const refreshAllLabs = async () => {
                   </div>
                 </div>
 
-                {/* Manual Input */}
+                {/* Manual Input - Mobile optimized */}
                 {inputMethod === "manual" && (
                   <div>
-                    <Label htmlFor="students">Student Numbers <span className="text-red-500">*</span></Label>
+                    <Label htmlFor="students" className="text-sm">Student Numbers <span className="text-red-500">*</span></Label>
                     <Textarea
                       id="students"
                       placeholder="Enter student numbers (one per line or comma-separated)&#10;e.g.:&#10;2024001&#10;2024002&#10;2024003"
                       value={studentNumbers}
                       onChange={(e) => setStudentNumbers(e.target.value)}
-                      rows={8}
-                      className="font-mono"
+                      rows={6}
+                      className="font-mono text-sm mt-1"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       Students entered: {parseStudentNumbers(studentNumbers).length}
@@ -1277,11 +1281,11 @@ const refreshAllLabs = async () => {
                   </div>
                 )}
 
-                {/* CSV Import */}
+                {/* CSV Import - Mobile optimized */}
                 {inputMethod === "csv" && (
                   <div className="space-y-3">
-                    <Label htmlFor="csvFile">Upload CSV File <span className="text-red-500">*</span></Label>
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <Label htmlFor="csvFile" className="text-sm">Upload CSV File <span className="text-red-500">*</span></Label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 text-center">
                       <input
                         id="csvFile"
                         type="file"
@@ -1294,11 +1298,11 @@ const refreshAllLabs = async () => {
                           htmlFor="csvFile"
                           className="cursor-pointer flex flex-col items-center gap-2"
                         >
-                          <FileText className="h-8 w-8 text-gray-400" />
+                          <FileText className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400" />
                           <span className="text-sm font-medium text-gray-700">
                             Click to upload CSV file
                           </span>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-500 text-center">
                             Student numbers should be in the first column
                           </span>
                         </label>
@@ -1308,8 +1312,8 @@ const refreshAllLabs = async () => {
                     {csvFile && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                         <div className="flex items-center gap-2 text-green-800">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span className="text-sm font-medium">{csvFile.name}</span>
+                          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                          <span className="text-sm font-medium truncate">{csvFile.name}</span>
                         </div>
                         <p className="text-xs text-green-600 mt-1">
                           {importedStudents.length} student numbers imported
@@ -1334,16 +1338,16 @@ const refreshAllLabs = async () => {
                 )}
 
                 <div>
-                  <Label htmlFor="strategy">Allocation Strategy</Label>
+                  <Label htmlFor="strategy" className="text-sm">Allocation Strategy</Label>
                   <Tooltip content="Choose how students are distributed across available labs">
                     <Select value={allocationStrategy} onValueChange={(value: any) => setAllocationStrategy(value)}>
-                      <SelectTrigger>
+                      <SelectTrigger className="mt-1">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="balanced">Balanced - Distribute evenly across labs</SelectItem>
+                        <SelectItem value="balanced">Balanced - Distribute evenly</SelectItem>
                         <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
-                        <SelectItem value="preference">Preference - Prefer larger labs first</SelectItem>
+                        <SelectItem value="preference">Preference - Prefer larger labs</SelectItem>
                       </SelectContent>
                     </Select>
                   </Tooltip>
@@ -1351,8 +1355,8 @@ const refreshAllLabs = async () => {
               </div>
 
               <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="font-medium mb-3">Capacity Summary</h4>
+                <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+                  <h4 className="font-medium mb-3 text-sm sm:text-base">Capacity Summary</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Total Available Seats:</span>
@@ -1371,37 +1375,43 @@ const refreshAllLabs = async () => {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                {/* Mobile-optimized action buttons */}
+                <div className="space-y-2 sm:space-y-0 sm:flex sm:gap-2">
                   <Tooltip content="Create seating plan with current settings and student list">
                     <Button 
                       onClick={generateSeatingPlan} 
-                      className="flex-1" 
+                      className="w-full sm:flex-1 text-sm" 
                       disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0}
                     >
                       <UserPlus className="h-4 w-4 mr-2" />
                       Generate Plan
                     </Button>
                   </Tooltip>
-                  <Tooltip content="Remove all current seat allocations and reset the system">
-                    <Button variant="outline" onClick={clearAllAllocations}>
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Clear All
-                    </Button>
-                  </Tooltip>
-                  <Tooltip content="Export the current seating plan as a printable PDF document">
-                    <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0}>
-                      <FileText className="h-4 w-4 mr-2" />
-                      Export PDF
-                    </Button>
-                  </Tooltip>
+                  
+                  <div className="flex gap-2">
+                    <Tooltip content="Remove all current seat allocations and reset the system">
+                      <Button variant="outline" onClick={clearAllAllocations} className="flex-1 sm:flex-none text-sm">
+                        <RotateCcw className="h-4 w-4 mr-1 sm:mr-2" />
+                        <span className="hidden sm:inline">Clear All</span>
+                        <span className="sm:hidden">Clear</span>
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="Export the current seating plan as a printable PDF document">
+                      <Button variant="outline" onClick={exportToPDF} disabled={allocations.length === 0} className="flex-1 sm:flex-none text-sm">
+                        <FileText className="h-4 w-4 mr-1 sm:mr-2" />
+                        <span className="hidden sm:inline">Export PDF</span>
+                        <span className="sm:hidden">PDF</span>
+                      </Button>
+                    </Tooltip>
+                  </div>
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Labs Grid */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {/* Labs Grid - Mobile optimized */}
+        <div className="grid gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {labs.map((lab) => {
             const availableSeats = calculateAvailableSeats(lab)
             const allocatedCount = lab.allocatedStudents.length
@@ -1409,16 +1419,16 @@ const refreshAllLabs = async () => {
 
             return (
               <Card key={lab.id} className="relative">
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-xl">{lab.name}</CardTitle>
-                      <CardDescription>{lab.totalMachines} machines</CardDescription>
+                <CardHeader className="pb-3 sm:pb-6">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="text-lg sm:text-xl truncate">{lab.name}</CardTitle>
+                      <CardDescription className="text-sm">{lab.totalMachines} machines</CardDescription>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={`${getStatusColor(lab.status)} text-white flex items-center gap-1`}>
+                    <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                      <Badge className={`${getStatusColor(lab.status)} text-white flex items-center gap-1 text-xs`}>
                         {getStatusIcon(lab.status)}
-                        {lab.status}
+                        <span className="hidden sm:inline">{lab.status}</span>
                       </Badge>
                       {!lab.isLoading && (
                         <Tooltip content="Refresh machine status for this lab only">
@@ -1428,7 +1438,7 @@ const refreshAllLabs = async () => {
                             onClick={() => refreshLabData(lab.id)}
                             className="h-8 w-8 p-0"
                           >
-                            <RotateCcw className="h-4 w-4" />
+                            <RotateCcw className="h-3 w-3 sm:h-4 sm:w-4" />
                           </Button>
                         </Tooltip>
                       )}
@@ -1436,8 +1446,8 @@ const refreshAllLabs = async () => {
                   </div>
                 </CardHeader>
 
-                <CardContent className="space-y-4">
-                  {/* Machine Status */}
+                <CardContent className="space-y-3 sm:space-y-4">
+                  {/* Machine Status - Mobile optimized */}
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Machines Online</span>
@@ -1457,25 +1467,25 @@ const refreshAllLabs = async () => {
                     )}
                   </div>
 
-                  {/* Seat Allocation Summary */}
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                  {/* Seat Allocation Summary - Mobile optimized */}
+                  <div className="bg-gray-50 p-3 sm:p-4 rounded-lg space-y-3">
                     <h4 className="font-medium text-sm">Seat Status</h4>
 
-                    <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-2 sm:gap-4 text-sm">
                       <div className="text-center">
-                        <div className="text-xl font-bold text-green-600">{availableSeats}</div>
-                        <div className="text-gray-500">Available</div>
+                        <div className="text-lg sm:text-xl font-bold text-green-600">{availableSeats}</div>
+                        <div className="text-gray-500 text-xs sm:text-sm">Available</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-xl font-bold text-blue-600">{allocatedCount}</div>
-                        <div className="text-gray-500">Allocated</div>
+                        <div className="text-lg sm:text-xl font-bold text-blue-600">{allocatedCount}</div>
+                        <div className="text-gray-500 text-xs sm:text-sm">Allocated</div>
                       </div>
                     </div>
 
                     {lab.status === "In Use" && lab.currentBooking && (
                       <div className="border-t pt-3 space-y-1">
-                        <div className="text-xs font-medium text-gray-700">{lab.currentBooking.course}</div>
-                        <div className="text-xs text-gray-500">{lab.currentBooking.instructor}</div>
+                        <div className="text-xs font-medium text-gray-700 truncate">{lab.currentBooking.course}</div>
+                        <div className="text-xs text-gray-500 truncate">{lab.currentBooking.instructor}</div>
                         <div className="text-xs text-gray-500">{lab.currentBooking.time}</div>
                         <div className="text-xs">
                           <span className="font-medium">{currentlyBooked}</span> pre-booked
@@ -1503,7 +1513,9 @@ const refreshAllLabs = async () => {
                     }} 
                     className="block"
                   >
-                    <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8]">View configurations</Button>
+                    <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8] text-sm">
+                      View configurations
+                    </Button>
                   </Link>
                 </CardContent>
               </Card>
@@ -1511,36 +1523,38 @@ const refreshAllLabs = async () => {
           })}
         </div>
 
-        {/* Allocation Results */}
+        {/* Allocation Results - Mobile optimized */}
         {allocations.length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle>Generated Seating Plan</CardTitle>
-              <CardDescription>
+            <CardHeader className="pb-3 sm:pb-6">
+              <CardTitle className="text-lg sm:text-xl">Generated Seating Plan</CardTitle>
+              <CardDescription className="text-sm">
                 {allocations.length} students allocated across {new Set(allocations.map((a) => a.labId)).size} labs
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4">
+              <div className="space-y-3 sm:space-y-4">
                 {labs
                   .filter((lab) => lab.allocatedStudents.length > 0)
                   .map((lab) => (
-                    <div key={lab.id} className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-3">
+                    <div key={lab.id} className="border rounded-lg p-3 sm:p-4">
+                      <h4 className="font-medium mb-3 text-sm sm:text-base">
                         {lab.name} - {lab.allocatedStudents.length} students
                       </h4>
-                      <div className="space-y-2">
+                      <div className="space-y-1 sm:space-y-2">
                         {allocations
                           .filter((a) => a.labId === lab.id)
                           .map((allocation) => (
                             <div
                               key={`${allocation.labId}-${allocation.studentNumber}`}
-                              className="flex justify-between items-center bg-blue-50 px-3 py-2 rounded"
+                              className="flex flex-col sm:flex-row sm:justify-between sm:items-center bg-blue-50 px-3 py-2 rounded gap-2 sm:gap-0"
                             >
-                              <span className="font-medium text-blue-800">{allocation.studentNumber}</span>
-                              <div className="text-sm text-gray-600">
-                                <span className="font-mono bg-gray-100 px-2 py-1 rounded">{allocation.machineId}</span>
-                                <span className="ml-2">
+                              <span className="font-medium text-blue-800 text-sm">{allocation.studentNumber}</span>
+                              <div className="text-xs sm:text-sm text-gray-600 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">
+                                  {allocation.machineId}
+                                </span>
+                                <span>
                                   Row {allocation.row}, Seat {allocation.position}
                                 </span>
                               </div>
