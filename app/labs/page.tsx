@@ -104,6 +104,8 @@ interface Lab {
   allocatedStudents: string[]
   lastUpdated?: string
   isLoading?: boolean
+  // NEW: Store the actual list of online machines
+  onlineMachineIds: string[]
 }
 
 interface StudentAllocation {
@@ -142,7 +144,12 @@ export default function LabsOverview() {
   }
 
   // NEW: Function to fetch machine status from server
-  const fetchLabMachineStatus = async (labId: string): Promise<{ machinesUp: number; machinesDown: number; lastUpdated: string }> => {
+  const fetchLabMachineStatus = async (labId: string): Promise<{ 
+    machinesUp: number; 
+    machinesDown: number; 
+    lastUpdated: string;
+    onlineMachineIds: string[] // NEW: Return the actual list of online machines
+  }> => {
     try {
       const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/listmachinesup`, {
         method: 'POST',
@@ -156,22 +163,23 @@ export default function LabsOverview() {
         const totalMachines = labCapacities[labId] || 50
         
         if (data.success && data.machines && Array.isArray(data.machines)) {
-          const machinesUp = data.machines.length
+          const onlineMachineIds = data.machines
           return {
-            machinesUp,
-            machinesDown: totalMachines - machinesUp,
-            lastUpdated: new Date().toLocaleTimeString()
+            machinesUp: onlineMachineIds.length,
+            machinesDown: totalMachines - onlineMachineIds.length,
+            lastUpdated: new Date().toLocaleTimeString(),
+            onlineMachineIds // Return the list of online machines
           }
         } else if (data.success && Array.isArray(data.output)) {
           const cleanOutput = data.output.map((line: string) => 
             line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
           ).filter((line: string) => line.length > 0)
           
-          const machinesUp = cleanOutput.length
           return {
-            machinesUp,
-            machinesDown: totalMachines - machinesUp,
-            lastUpdated: new Date().toLocaleTimeString()
+            machinesUp: cleanOutput.length,
+            machinesDown: totalMachines - cleanOutput.length,
+            lastUpdated: new Date().toLocaleTimeString(),
+            onlineMachineIds: cleanOutput // Return the list of online machines
           }
         }
       }
@@ -188,7 +196,8 @@ export default function LabsOverview() {
         return {
           machinesUp: cachedLab.machinesUp,
           machinesDown: cachedLab.machinesDown,
-          lastUpdated: cachedLab.lastUpdated || 'Unknown'
+          lastUpdated: cachedLab.lastUpdated || 'Unknown',
+          onlineMachineIds: cachedLab.onlineMachineIds || [] // Return empty array as fallback
         }
       }
       
@@ -197,13 +206,15 @@ export default function LabsOverview() {
       return {
         machinesUp: 0,
         machinesDown: totalMachines,
-        lastUpdated: 'Error'
+        lastUpdated: 'Error',
+        onlineMachineIds: [] // Return empty array as fallback
       }
     }
   }
 
   // Generate machines for each lab with the corrected TWK naming convention
-  const generateMachines = (labId: string, totalMachines: number, machinesUp: number): Machine[] => {
+  // UPDATED: Now uses the actual list of online machines to set isWorking status
+  const generateMachines = (labId: string, totalMachines: number, onlineMachineIds: string[]): Machine[] => {
     const machines: Machine[] = []
     let machineIndex = 0
 
@@ -212,12 +223,13 @@ export default function LabsOverview() {
       for (let row = 1; row <= 10; row++) {
         for (let position = 1; position <= 10; position++) {
           machineIndex++
+          const machineId = `twk${labId}-${String(row).padStart(2, "0")}-${String(position).padStart(2, "0")}`
           machines.push({
-            id: `TWK-${labId}-${String(row).padStart(2, "0")}-${String(position).padStart(2, "0")}`,
+            id: machineId,
             labId,
             row,
             position,
-            isWorking: machineIndex <= machinesUp,
+            isWorking: onlineMachineIds.includes(machineId), // Use the actual list of online machines
           })
         }
       }
@@ -235,12 +247,13 @@ export default function LabsOverview() {
       for (const rowConfig of lab106Layout) {
         for (let position = 1; position <= rowConfig.positions; position++) {
           machineIndex++
+          const machineId = `twk${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`
           machines.push({
-            id: `TWK-${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`,
+            id: machineId,
             labId,
             row: rowConfig.row,
             position,
-            isWorking: machineIndex <= machinesUp,
+            isWorking: onlineMachineIds.includes(machineId), // Use the actual list of online machines
           })
         }
       }
@@ -286,12 +299,13 @@ export default function LabsOverview() {
       for (const rowConfig of layout) {
         for (let position = 1; position <= rowConfig.seats; position++) {
           machineIndex++
+          const machineId = `twk${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`
           machines.push({
-            id: `TWK-${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`,
+            id: machineId,
             labId,
             row: rowConfig.row,
             position,
-            isWorking: machineIndex <= machinesUp,
+            isWorking: onlineMachineIds.includes(machineId), // Use the actual list of online machines
           })
         }
       }
@@ -316,97 +330,35 @@ export default function LabsOverview() {
   }, [])
 
   // NEW: Separate function to fetch all labs data
-  // Replace the fetchAllLabsData function with this updated version:
-
-const fetchAllLabsData = async () => {
-  setIsLoading(true)
-  
-  // Initialize labs with loading state
-  const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
-  const initialLabs: Lab[] = labIds.map(labId => ({
-    id: labId,
-    name: `Lab ${labId}`,
-    totalMachines: labCapacities[labId],
-    machinesUp: 0,
-    machinesDown: labCapacities[labId],
-    status: "Loading" as const,
-    machines: [],
-    allocatedStudents: [],
-    isLoading: true
-  }))
-  
-  setLabs(initialLabs)
-  setIsLoading(false) // Show the loading cards immediately
-
-  // Fetch data for each lab individually and update as soon as each completes
-  labIds.forEach(async (labId) => {
-    try {
-      const status = await fetchLabMachineStatus(labId)
-      
-      // Update only this specific lab as soon as its data is ready
-      setLabs(prevLabs => {
-        const updatedLabs = prevLabs.map(lab => {
-          if (lab.id === labId) {
-            return {
-              ...lab,
-              machinesUp: status.machinesUp,
-              machinesDown: status.machinesDown,
-              lastUpdated: status.lastUpdated,
-              status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-              machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
-              isLoading: false
-            }
-          }
-          return lab
-        })
-        
-        // Update cache immediately when any lab data changes
-        setLabsCache(updatedLabs)
-        return updatedLabs
-      })
-      
-    } catch (error) {
-      console.error(`Failed to fetch data for Lab ${labId}:`, error)
-      
-      // Update this lab to show error state
-      setLabs(prevLabs => {
-        const updatedLabs = prevLabs.map(lab => 
-          lab.id === labId ? { 
-            ...lab, 
-            isLoading: false, 
-            status: "Maintenance" as const,
-            lastUpdated: 'Error'
-          } : lab
-        )
-        setLabsCache(updatedLabs)
-        return updatedLabs
-      })
-    }
-  })
-}
-
-// Also update the refreshAllLabs function for consistency:
-
-const refreshAllLabs = async () => {
-  setIsRefreshing(true)
-  
-  // Clear cache
-  clearLabsCache()
-  
-  // Set all labs to loading state
-  setLabs(prevLabs => 
-    prevLabs.map(lab => ({ ...lab, isLoading: true, status: "Loading" as const }))
-  )
-  
-  try {
-    const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+  // UPDATED: Now fetches and stores the list of online machines
+  const fetchAllLabsData = async () => {
+    setIsLoading(true)
     
-    // Fetch each lab individually and update progressively
-    const refreshPromises = labIds.map(async (labId) => {
+    // Initialize labs with loading state
+    const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+    const initialLabs: Lab[] = labIds.map(labId => ({
+      id: labId,
+      name: `Lab ${labId}`,
+      totalMachines: labCapacities[labId],
+      machinesUp: 0,
+      machinesDown: labCapacities[labId],
+      status: "Loading" as const,
+      machines: [],
+      allocatedStudents: [],
+      lastUpdated: undefined,
+      isLoading: true,
+      onlineMachineIds: [] // Initialize with empty array
+    }))
+    
+    setLabs(initialLabs)
+    setIsLoading(false) // Show the loading cards immediately
+
+    // Fetch data for each lab individually and update as soon as each completes
+    labIds.forEach(async (labId) => {
       try {
         const status = await fetchLabMachineStatus(labId)
         
-        // Update this specific lab immediately when its data is ready
+        // Update only this specific lab as soon as its data is ready
         setLabs(prevLabs => {
           const updatedLabs = prevLabs.map(lab => {
             if (lab.id === labId) {
@@ -416,28 +368,31 @@ const refreshAllLabs = async () => {
                 machinesDown: status.machinesDown,
                 lastUpdated: status.lastUpdated,
                 status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-                machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
-                isLoading: false
+                machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds), // Pass onlineMachineIds
+                isLoading: false,
+                onlineMachineIds: status.onlineMachineIds // Store the list of online machines
               }
             }
             return lab
           })
           
-          // Update cache with the new data
+          // Update cache immediately when any lab data changes
           setLabsCache(updatedLabs)
           return updatedLabs
         })
         
       } catch (error) {
-        console.error(`Failed to refresh Lab ${labId}:`, error)
+        console.error(`Failed to fetch data for Lab ${labId}:`, error)
         
+        // Update this lab to show error state
         setLabs(prevLabs => {
           const updatedLabs = prevLabs.map(lab => 
             lab.id === labId ? { 
               ...lab, 
               isLoading: false, 
               status: "Maintenance" as const,
-              lastUpdated: 'Error'
+              lastUpdated: 'Error',
+              onlineMachineIds: [] // Set empty array on error
             } : lab
           )
           setLabsCache(updatedLabs)
@@ -445,20 +400,84 @@ const refreshAllLabs = async () => {
         })
       }
     })
-    
-    // Wait for all labs to complete (for the success message)
-    await Promise.allSettled(refreshPromises)
-    
-    showSuccessToast(
-      "Labs Refreshed Successfully", 
-      "All lab data has been updated with the latest machine status"
-    )
-  } catch (error) {
-    showErrorToast("Refresh Failed", "Error refreshing lab data. Please try again.")
-  } finally {
-    setIsRefreshing(false)
   }
-}
+
+  // UPDATED: refreshAllLabs function to handle onlineMachineIds
+  const refreshAllLabs = async () => {
+    setIsRefreshing(true)
+    
+    // Clear cache
+    clearLabsCache()
+    
+    // Set all labs to loading state
+    setLabs(prevLabs => 
+      prevLabs.map(lab => ({ ...lab, isLoading: true, status: "Loading" as const }))
+    )
+    
+    try {
+      const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
+      
+      // Fetch each lab individually and update progressively
+      const refreshPromises = labIds.map(async (labId) => {
+        try {
+          const status = await fetchLabMachineStatus(labId)
+          
+          // Update this specific lab immediately when its data is ready
+          setLabs(prevLabs => {
+            const updatedLabs = prevLabs.map(lab => {
+              if (lab.id === labId) {
+                return {
+                  ...lab,
+                  machinesUp: status.machinesUp,
+                  machinesDown: status.machinesDown,
+                  lastUpdated: status.lastUpdated,
+                  status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
+                  machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds), // Pass onlineMachineIds
+                  isLoading: false,
+                  onlineMachineIds: status.onlineMachineIds // Store the list of online machines
+                }
+              }
+              return lab
+            })
+            
+            // Update cache with the new data
+            setLabsCache(updatedLabs)
+            return updatedLabs
+          })
+          
+        } catch (error) {
+          console.error(`Failed to refresh Lab ${labId}:`, error)
+          
+          setLabs(prevLabs => {
+            const updatedLabs = prevLabs.map(lab => 
+              lab.id === labId ? { 
+                ...lab, 
+                isLoading: false, 
+                status: "Maintenance" as const,
+                lastUpdated: 'Error',
+                onlineMachineIds: [] // Set empty array on error
+              } : lab
+            )
+            setLabsCache(updatedLabs)
+            return updatedLabs
+          })
+        }
+      })
+      
+      // Wait for all labs to complete (for the success message)
+      await Promise.allSettled(refreshPromises)
+      
+      showSuccessToast(
+        "Labs Refreshed Successfully", 
+        "All lab data has been updated with the latest machine status"
+      )
+    } catch (error) {
+      showErrorToast("Refresh Failed", "Error refreshing lab data. Please try again.")
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   // UPDATED: Function to refresh a specific lab's data and update cache
   const refreshLabData = async (labId: string) => {
     setLabs(prevLabs => 
@@ -478,8 +497,9 @@ const refreshAllLabs = async () => {
             machinesDown: status.machinesDown,
             lastUpdated: status.lastUpdated,
             status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-            machines: generateMachines(lab.id, lab.totalMachines, status.machinesUp),
-            isLoading: false
+            machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds), // Pass onlineMachineIds
+            isLoading: false,
+            onlineMachineIds: status.onlineMachineIds // Store the list of online machines
           }
         }
         return lab
@@ -495,7 +515,8 @@ const refreshAllLabs = async () => {
           ...lab, 
           isLoading: false, 
           status: "Maintenance" as const,
-          lastUpdated: 'Error'
+          lastUpdated: 'Error',
+          onlineMachineIds: [] // Set empty array on error
         } : lab
       )
       setLabs(updatedLabs)
