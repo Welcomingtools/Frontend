@@ -834,7 +834,7 @@ export default function LabsOverview() {
           if (!allocated) {
             console.warn(`Could not allocate student ${student} - no available seats`)
             break
-            }
+          }
         }
         break
     }
@@ -1026,22 +1026,23 @@ export default function LabsOverview() {
             <thead>
               <tr>
                 <th style="width: 25%;">STUDENT NUMBER</th>
-                <th style="width: 20%;">MODULE CODE</th>
+                <th style="width: 20%;">VENUE</th>
                 <th style="width: 15%;">LAB</th>
-                <th style="width: 15%;">MACHINE ID</th>
                 <th style="width: 10%;">ROW</th>
                 <th style="width: 15%;">SEAT</th>
               </tr>
             </thead>
             <tbody>
-              ${sortedAllocations
-                .map((allocation, index) => {
+              ${allocations
+                .filter((allocation) => labs.find(l => l.id === allocation.labId))
+                .sort((a, b) => a.studentNumber.localeCompare(b.studentNumber, undefined, { numeric: true }))
+                .map((allocation, index, sortedAllocations) => {
                   const lab = labs.find(l => l.id === allocation.labId)
                   // Add lab header rows to separate different labs
                   const isFirstInLab = index === 0 || sortedAllocations[index - 1].labId !== allocation.labId
                   const labHeaderRow = isFirstInLab ? `
                     <tr>
-                      <td colspan="6" class="lab-header">
+                      <td colspan="5" class="lab-header">
                         ${lab?.name.toUpperCase()} - ${sortedAllocations.filter(a => a.labId === allocation.labId).length} STUDENTS
                       </td>
                     </tr>
@@ -1053,7 +1054,6 @@ export default function LabsOverview() {
                       <td class="student-number">${allocation.studentNumber}</td>
                       <td class="module-code">MSL${allocation.labId}</td>
                       <td>${allocation.labId}</td>
-                      <td style="font-family: monospace; font-size: 10px;">${allocation.machineId}</td>
                       <td>${allocation.row}</td>
                       <td class="seat-number">${allocation.position}</td>
                     </tr>
