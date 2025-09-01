@@ -1522,22 +1522,22 @@ export default function LabsOverview() {
                       </div>
                     )}
                   </div>
-
                   <Link 
-                    href={{
-                      pathname: `/labs/${lab.id}`,
-                      query: { 
-                        up: lab.machinesUp,
-                        down: lab.machinesDown,
-                        total: lab.totalMachines
-                      }
-                    }} 
-                    className="block"
-                  >
-                    <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8] text-sm">
-                      View configurations
-                    </Button>
-                  </Link>
+                  href={{
+                    pathname: `/labs/${lab.id}`,
+                    query: { 
+                      up: lab.machinesUp,
+                      down: lab.machinesDown,
+                      total: lab.totalMachines,
+                      loading: lab.isLoading ? 'true' : 'false'  // ADD THIS LINE
+                    }
+                  }} 
+                  className="block"
+                >
+                  <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8] text-sm">
+                  Lab Dashboard
+                  </Button>
+                </Link>
                 </CardContent>
               </Card>
             )
