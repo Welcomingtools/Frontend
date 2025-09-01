@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -40,7 +40,7 @@ interface CommandResult {
   welcometoolsCommand?: string
   description?: string
   labId?: string
-  machines?: string[] // Added machines array to interface
+  machines?: string[]
 }
 
 interface SessionData {
@@ -63,15 +63,31 @@ interface SessionData {
 
 export default function LabStatusPage() {
   const { id } = useParams()
+  const searchParams = useSearchParams()
   
   // Get the correct lab ID and capacity
   const labId = Array.isArray(id) ? id[0] : id || "106"
   const totalMachines = labCapacities[labId] || 16
   
+  // Check if we have query parameters from the lab overview
+  const queryUp = searchParams.get('up')
+  const queryDown = searchParams.get('down')
+  const queryTotal = searchParams.get('total')
+  const fromOverview = queryUp !== null && queryDown !== null && queryTotal !== null
+  
   // State for machine status
-  const [machinesUp, setMachinesUp] = useState(0)
-  const [machinesDown, setMachinesDown] = useState(totalMachines)
-  const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleTimeString())
+  const [machinesUp, setMachinesUp] = useState(() => {
+    // Use query params if coming from overview, otherwise start with 0
+    return fromOverview ? parseInt(queryUp!) : 0
+  })
+  const [machinesDown, setMachinesDown] = useState(() => {
+    // Use query params if coming from overview, otherwise start with total
+    return fromOverview ? parseInt(queryDown!) : totalMachines
+  })
+  const [lastUpdated, setLastUpdated] = useState(() => {
+    // If coming from overview, show that we're using cached data
+    return fromOverview ? "From overview cache" : new Date().toLocaleTimeString()
+  })
   
   // State for command execution
   const [isLoading, setIsLoading] = useState<string | null>(null)
@@ -81,44 +97,56 @@ export default function LabStatusPage() {
   // Session data state - initially empty
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
 
-  // Fetch initial machine status
+  // Fetch initial machine status only if not coming from overview
   useEffect(() => {
-    const fetchInitialStatus = async () => {
-      try {
-        setIsLoading('initial')
-        const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/listmachinesup`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        })
+    if (!fromOverview) {
+      const fetchInitialStatus = async () => {
+        try {
+          setIsLoading('initial')
+          const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/listmachinesup`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          })
 
-        if (response.ok) {
-          const data = await response.json()
-          // Use machines array if available, otherwise fall back to output parsing
-          if (data.success && data.machines && Array.isArray(data.machines)) {
-            setMachinesUp(data.machines.length)
-            setMachinesDown(totalMachines - data.machines.length)
-            setLastUpdated(new Date().toLocaleTimeString())
-          } else if (data.success && Array.isArray(data.output)) {
-            const cleanOutput = data.output.map((line: string) => 
-              line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
-            ).filter((line: string) => line.length > 0)
-            
-            setMachinesUp(cleanOutput.length)
-            setMachinesDown(totalMachines - cleanOutput.length)
-            setLastUpdated(new Date().toLocaleTimeString())
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.machines && Array.isArray(data.machines)) {
+              setMachinesUp(data.machines.length)
+              setMachinesDown(totalMachines - data.machines.length)
+              setLastUpdated(new Date().toLocaleTimeString())
+            } else if (data.success && Array.isArray(data.output)) {
+              const cleanOutput = data.output.map((line: string) => 
+                line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
+              ).filter((line: string) => line.length > 0)
+              
+              setMachinesUp(cleanOutput.length)
+              setMachinesDown(totalMachines - cleanOutput.length)
+              setLastUpdated(new Date().toLocaleTimeString())
+            }
           }
+        } catch (err) {
+          console.error('Failed to fetch initial machine status:', err)
+        } finally {
+          setIsLoading(null)
         }
-      } catch (err) {
-        console.error('Failed to fetch initial machine status:', err)
-      } finally {
-        setIsLoading(null)
       }
-    }
 
-    fetchInitialStatus()
-  }, [totalMachines, labId])
+      fetchInitialStatus()
+    } else {
+      // Add a note that we're using cached data from overview
+      const result: CommandResult = {
+        command: "Using Cached Data",
+        success: true,
+        output: `✅ Using machine status from Lab Overview\n\nMachines Up: ${queryUp}\nMachines Down: ${queryDown}\nTotal Machines: ${queryTotal}\n\nThis data was already fetched in the overview page, so no additional server request was needed.`,
+        timestamp: new Date().toLocaleTimeString(),
+        duration: 0,
+        labId: labId
+      }
+      setCommandResults([result])
+    }
+  }, [fromOverview, totalMachines, labId, queryUp, queryDown, queryTotal])
 
   // Real command execution - calls your Node.js server with lab ID
   const executeCommand = async (command: string, description: string) => {
@@ -142,12 +170,10 @@ export default function LabStatusPage() {
       // Format output for display
       let displayOutput = ''
       if (data.success) {
-        // Use machines array if available, otherwise fall back to output
         const machinesList = data.machines && Array.isArray(data.machines) ? data.machines : 
                             (Array.isArray(data.output) ? data.output : []);
         
         if (machinesList.length > 0) {
-          // Clean up machine names (remove terminal control characters)
           const cleanOutput = machinesList.map((line: string) => 
             line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
           ).filter((line: string) => line.length > 0)
@@ -169,8 +195,6 @@ export default function LabStatusPage() {
             displayOutput = `✅ ${description} completed successfully\n\nReport:\n${cleanOutput.join('\n')}`
           } else {
             displayOutput = `✅ ${description} completed successfully for Lab ${labId}\n\n${cleanOutput.join('\n')}`
-            
-            // Update session configurations if relevant
             updateSessionData(command)
           }
         } else {
@@ -190,16 +214,15 @@ export default function LabStatusPage() {
         welcometoolsCommand: data.welcometoolsCommand,
         description: data.description,
         labId: labId,
-        machines: data.machines // Include machines array in result
+        machines: data.machines
       }
 
-      setCommandResults(prev => [result, ...prev.slice(0, 14)]) // Keep last 15 results
+      setCommandResults(prev => [result, ...prev.slice(0, 14)])
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Failed to execute ${description} for Lab ${labId}: ${errorMessage}`)
       
-      // Add failed result to results
       const result: CommandResult = {
         command: description,
         success: false,
@@ -297,6 +320,58 @@ export default function LabStatusPage() {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Health check failed: ${errorMessage}`)
+    } finally {
+      setIsLoading(null)
+    }
+  }
+
+  // Manual refresh function - forces a fresh fetch regardless of how we got here
+  const refreshMachineStatus = async () => {
+    setIsLoading('refresh')
+    setError("")
+  
+    try {
+      const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/listmachinesup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+  
+      if (response.ok) {
+        const data = await response.json()
+        let upCount = 0;
+        let cleanOutput: string[] = [];
+  
+        if (data.success && data.machines && Array.isArray(data.machines)) {
+          upCount = data.machines.length
+          setMachinesUp(upCount)
+          setMachinesDown(totalMachines - upCount)
+        } else if (data.success && Array.isArray(data.output)) {
+          cleanOutput = data.output.map((line: string) => 
+            line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
+          ).filter((line: string) => line.length > 0)
+          
+          upCount = cleanOutput.length
+          setMachinesUp(upCount)
+          setMachinesDown(totalMachines - upCount)
+        }
+        
+        setLastUpdated(new Date().toLocaleTimeString())
+        
+        const result: CommandResult = {
+          command: "Manual Refresh",
+          success: true,
+          output: `✅ Machine status refreshed successfully\n\nMachines Up: ${upCount}\nMachines Down: ${totalMachines - upCount}\n\nData fetched fresh from server`,
+          timestamp: new Date().toLocaleTimeString(),
+          duration: data.duration || 0,
+          labId: labId
+        }
+        setCommandResults(prev => [result, ...prev.slice(0, 14)])
+      }
+    } catch (err) {
+      console.error('Failed to refresh machine status:', err)
+      setError('Failed to refresh machine status')
     } finally {
       setIsLoading(null)
     }
@@ -484,6 +559,11 @@ export default function LabStatusPage() {
               </Link>
             </Button>
             <h1 className="text-xl font-bold">Lab {labId} Status & Control</h1>
+            {fromOverview && (
+              <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                From Overview
+              </Badge>
+            )}
           </div>
           {getSessionStatusBadge(sessionData?.status)}
         </div>
@@ -493,6 +573,24 @@ export default function LabStatusPage() {
         {error && (
           <Alert variant="destructive" className="mb-4">
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Show cache indicator if using data from overview */}
+        {fromOverview && (
+          <Alert className="mb-4 border-blue-200 bg-blue-50">
+            <CheckCircle className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800">
+              Using machine status data from Lab Overview to avoid redundant loading. 
+              <Button 
+                variant="link" 
+                className="p-0 h-auto text-blue-600 underline ml-1"
+                onClick={refreshMachineStatus}
+                disabled={isLoading === 'refresh'}
+              >
+                {isLoading === 'refresh' ? 'Refreshing...' : 'Click here to refresh from server'}
+              </Button>
+            </AlertDescription>
           </Alert>
         )}
 
@@ -539,7 +637,24 @@ export default function LabStatusPage() {
         <div className="grid gap-4 md:grid-cols-2 mb-4">
           <Card>
             <CardHeader>
-              <CardTitle>Lab {labId} Status</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Lab {labId} Status</CardTitle>
+                {!fromOverview && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshMachineStatus}
+                    disabled={isLoading === 'refresh'}
+                  >
+                    {isLoading === 'refresh' ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <RefreshCcw className="h-4 w-4 mr-2" />
+                    )}
+                    Refresh
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
