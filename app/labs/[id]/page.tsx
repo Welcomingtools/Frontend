@@ -13,8 +13,10 @@ import { Progress } from "@/components/ui/progress"
 import { 
   ArrowLeft, Monitor, Globe, Home, RefreshCcw, CheckCircle, 
   XCircle, Clock, Power, Wifi, WifiOff, Users, HardDrive, 
-  Download, Shield, FileText, Activity, Loader2 
+  Download, Shield, FileText, Activity, Loader2, Calendar,
+  FileText as DescriptionIcon
 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 // Lab capacity data with proper typing
 const labCapacities: Record<string, number> = {
@@ -44,21 +46,24 @@ interface CommandResult {
 }
 
 interface SessionData {
-  sessionId: string
-  scheduledBy: string
-  course: string
+  id: string
+  lab: string
+  date: string
   startTime: string
   endTime: string
-  date: string
-  configurations: {
-    windowsBoot: boolean
-    userCleanup: boolean
-    homeDirectories: boolean
-    internetAccess: boolean
-    dataHandout: boolean
-  }
-  appliedAt: string
+  purpose: string
+  description: string
   status: string
+  configurations: {
+    windows: boolean
+    internet: boolean
+    homes: boolean
+    userCleanup: boolean
+    handoutdata: boolean
+    reboot: boolean
+  }
+  createdBy: string
+  createdByEmail: string
 }
 
 export default function LabStatusPage() {
@@ -73,6 +78,7 @@ export default function LabStatusPage() {
   const queryUp = searchParams.get('up')
   const queryDown = searchParams.get('down')
   const queryTotal = searchParams.get('total')
+  const sessionId = searchParams.get('session')
   const fromOverview = queryUp !== null && queryDown !== null && queryTotal !== null
   
   // State for machine status
@@ -94,8 +100,58 @@ export default function LabStatusPage() {
   const [commandResults, setCommandResults] = useState<CommandResult[]>([])
   const [error, setError] = useState("")
   
-  // Session data state - initially empty
+  // Session data state - fetch from database using session ID
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
+
+  // Fetch session data when sessionId is available
+  useEffect(() => {
+    const fetchSessionData = async () => {
+      if (!sessionId) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+
+        if (error) {
+          console.error('Error fetching session data:', error);
+          return;
+        }
+
+        if (data) {
+          // Transform the database data to match our frontend interface
+          const session: SessionData = {
+            id: data.id,
+            lab: data.lab,
+            date: data.date,
+            startTime: data.start_time,
+            endTime: data.end_time,
+            purpose: data.purpose,
+            description: data.description || "",
+            status: data.status,
+            configurations: {
+              windows: data.config_windows,
+              internet: data.config_internet,
+              homes: data.config_homes,
+              userCleanup: data.config_user_cleanup,
+              handoutdata: data.config_handoutdata,
+              reboot: data.config_reboot,
+            },
+            createdBy: data.created_by,
+            createdByEmail: data.created_by_email,
+          };
+          
+          setSessionData(session);
+        }
+      } catch (err) {
+        console.error('Error fetching session data:', err);
+      }
+    };
+
+    fetchSessionData();
+  }, [sessionId]);
 
   // Fetch initial machine status only if not coming from overview
   useEffect(() => {
@@ -195,11 +251,9 @@ export default function LabStatusPage() {
             displayOutput = `✅ ${description} completed successfully\n\nReport:\n${cleanOutput.join('\n')}`
           } else {
             displayOutput = `✅ ${description} completed successfully for Lab ${labId}\n\n${cleanOutput.join('\n')}`
-            updateSessionData(command)
           }
         } else {
           displayOutput = `✅ ${description} completed successfully for Lab ${labId}\nCommand executed on welcometools server\nDuration: ${(data.duration / 1000).toFixed(1)}s`
-          updateSessionData(command)
         }
       } else {
         displayOutput = `❌ ${description} failed for Lab ${labId}\nError: ${data.error}\nDuration: ${(data.duration / 1000).toFixed(1)}s`
@@ -235,69 +289,6 @@ export default function LabStatusPage() {
     } finally {
       setIsLoading(null)
     }
-  }
-
-  // Update session data based on command
-  const updateSessionData = (command: string) => {
-    const getDefaultSessionData = () => ({
-      sessionId: "",
-      scheduledBy: "",
-      course: "",
-      startTime: "",
-      endTime: "",
-      date: "",
-      configurations: {
-        windowsBoot: false,
-        userCleanup: false,
-        homeDirectories: false,
-        internetAccess: false,
-        dataHandout: false
-      },
-      appliedAt: new Date().toLocaleTimeString(),
-      status: "active"
-    })
-
-    setSessionData(prev => {
-      const currentData = prev || getDefaultSessionData()
-      const updatedConfigurations = { ...currentData.configurations }
-
-      switch (command) {
-        case 'armwindows':
-          updatedConfigurations.windowsBoot = true
-          break
-        case 'disarmwindows':
-          updatedConfigurations.windowsBoot = false
-          break
-        case 'armvmusercleanup':
-          updatedConfigurations.userCleanup = true
-          break
-        case 'disarmvmusercleanup':
-          updatedConfigurations.userCleanup = false
-          break
-        case 'armhomes':
-          updatedConfigurations.homeDirectories = true
-          break
-        case 'disarmhomes':
-          updatedConfigurations.homeDirectories = false
-          break
-        case 'internetup':
-          updatedConfigurations.internetAccess = true
-          break
-        case 'internetdown':
-          updatedConfigurations.internetAccess = false
-          break
-        case 'handoutdata':
-          updatedConfigurations.dataHandout = true
-          break
-      }
-
-      return {
-        ...currentData,
-        configurations: updatedConfigurations,
-        appliedAt: new Date().toLocaleTimeString(),
-        status: "active"
-      }
-    })
   }
 
   // Test server connection
@@ -381,27 +372,43 @@ export default function LabStatusPage() {
     return isEnabled ? (
       <div className="flex items-center gap-2 text-green-600">
         <CheckCircle className="h-4 w-4" />
-        <span className="text-sm font-medium">Enabled</span>
+        <span className="text-sm font-medium">To be Applied</span>
       </div>
     ) : (
-      <div className="flex items-center gap-2 text-red-600">
+      <div className="flex items-center gap-2 text-gray-400">
         <XCircle className="h-4 w-4" />
-        <span className="text-sm font-medium">Disabled</span>
+        <span className="text-sm font-medium">Not Required</span>
       </div>
     )
   }
 
   const getSessionStatusBadge = (status: string | undefined) => {
     switch (status) {
-      case "active":
+      case "confirmed":
         return <Badge className="bg-green-600">Session Active</Badge>
-      case "scheduled":
-        return <Badge className="bg-blue-600">Scheduled</Badge>
-      case "ended":
-        return <Badge className="bg-gray-600">Session Ended</Badge>
+      case "under_review":
+        return <Badge className="bg-orange-600">Under Review</Badge>
       default:
         return <Badge variant="outline">No Session</Badge>
     }
+  }
+
+  // Format time for display
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(":")
+    const hour = Number.parseInt(hours)
+    return `${hour % 12 || 12}${minutes !== "00" ? ":" + minutes : ""} ${hour >= 12 ? "PM" : "AM"}`
+  }
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    })
   }
 
   // All 18 commands organized by category
@@ -595,41 +602,55 @@ export default function LabStatusPage() {
         )}
 
         {/* Session Information */}
-        {sessionData && sessionData.status === "active" && (
+        {sessionData && (
           <Card className="mb-4">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
+                <Calendar className="h-5 w-5" />
                 Current Session
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Course</p>
-                  <p className="font-medium">{sessionData.course}</p>
+                  <p className="text-sm text-muted-foreground">Purpose</p>
+                  <p className="font-medium">{sessionData.purpose}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Instructor</p>
-                  <p className="font-medium">{sessionData.scheduledBy}</p>
+                  <p className="text-sm text-muted-foreground">Scheduled By</p>
+                  <p className="font-medium">{sessionData.createdBy}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p className="font-medium">{formatDate(sessionData.date)}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Time</p>
-                  <p className="font-medium">{sessionData.startTime} - {sessionData.endTime}</p>
+                  <p className="font-medium">{formatTime(sessionData.startTime)} - {formatTime(sessionData.endTime)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <p className="font-medium">
+                    {sessionData.status === "confirmed" ? "Confirmed" : 
+                     sessionData.status === "under_review" ? "Under Review" : "Unknown"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Session ID</p>
-                  <p className="font-mono text-sm">{sessionData.sessionId}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Configurations Applied</p>
-                  <p className="font-medium">{sessionData.appliedAt}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Last Updated</p>
-                  <p className="font-medium">{lastUpdated}</p>
+                  <p className="font-mono text-sm">{sessionData.id}</p>
                 </div>
               </div>
+              
+              {/* Session Description */}
+              {sessionData.description && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="flex items-center gap-2 mb-2">
+                    <DescriptionIcon className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Session Description</p>
+                  </div>
+                  <p className="text-sm">{sessionData.description}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -693,7 +714,7 @@ export default function LabStatusPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Applied Configurations</CardTitle>
+              <CardTitle>Configurations to be Applied</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -702,13 +723,13 @@ export default function LabStatusPage() {
                     <Monitor className="h-5 w-5 text-muted-foreground" />
                     <Label>Windows Boot</Label>
                   </div>
-                  {getConfigurationStatus(sessionData?.configurations.windowsBoot || false)}
+                  {getConfigurationStatus(sessionData?.configurations.windows || false)}
                 </div>
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <RefreshCcw className="h-5 w-5 text-muted-foreground" />
-                    <Label>VM User Cleanup</Label>
+                    <Label>User Cleanup</Label>
                   </div>
                   {getConfigurationStatus(sessionData?.configurations.userCleanup || false)}
                 </div>
@@ -718,7 +739,7 @@ export default function LabStatusPage() {
                     <Home className="h-5 w-5 text-muted-foreground" />
                     <Label>Home Directories</Label>
                   </div>
-                  {getConfigurationStatus(sessionData?.configurations.homeDirectories || false)}
+                  {getConfigurationStatus(sessionData?.configurations.homes || false)}
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -726,7 +747,23 @@ export default function LabStatusPage() {
                     <Globe className="h-5 w-5 text-muted-foreground" />
                     <Label>Internet Access</Label>
                   </div>
-                  {getConfigurationStatus(sessionData?.configurations.internetAccess || false)}
+                  {getConfigurationStatus(sessionData?.configurations.internet || false)}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Download className="h-5 w-5 text-muted-foreground" />
+                    <Label>Handout Data</Label>
+                  </div>
+                  {getConfigurationStatus(sessionData?.configurations.handoutdata || false)}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Power className="h-5 w-5 text-muted-foreground" />
+                    <Label>Reboot After Arming</Label>
+                  </div>
+                  {getConfigurationStatus(sessionData?.configurations.reboot || false)}
                 </div>
               </div>
             </CardContent>
@@ -866,40 +903,52 @@ export default function LabStatusPage() {
               <CardContent>
                 <div className="space-y-6">
                   <div className="border-l-4 border-blue-500 pl-4">
-                    <h4 className="font-medium mb-2">System Settings</h4>
+                    <h4 className="font-medium mb-2">Configurations to be Applied</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div>
                         <span className="text-muted-foreground">Windows Boot:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.windowsBoot ? 'text-green-600' : 'text-red-600'}`}>
-                          {sessionData?.configurations.windowsBoot ? 'Armed' : 'Disarmed'}
+                        <span className={`ml-2 font-medium ${sessionData?.configurations.windows ? 'text-green-600' : 'text-gray-400'}`}>
+                          {sessionData?.configurations.windows ? 'To be Applied' : 'Not Required'}
                         </span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">User Cleanup:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.userCleanup ? 'text-green-600' : 'text-red-600'}`}>
-                          {sessionData?.configurations.userCleanup ? 'Active' : 'Inactive'}
+                        <span className={`ml-2 font-medium ${sessionData?.configurations.userCleanup ? 'text-green-600' : 'text-gray-400'}`}>
+                          {sessionData?.configurations.userCleanup ? 'To be Applied' : 'Not Required'}
                         </span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Home Directories:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.homeDirectories ? 'text-green-600' : 'text-red-600'}`}>
-                          {sessionData?.configurations.homeDirectories ? 'Mounted' : 'Unmounted'}
+                        <span className={`ml-2 font-medium ${sessionData?.configurations.homes ? 'text-green-600' : 'text-gray-400'}`}>
+                          {sessionData?.configurations.homes ? 'To be Applied' : 'Not Required'}
                         </span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Internet Access:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.internetAccess ? 'text-green-600' : 'text-red-600'}`}>
-                          {sessionData?.configurations.internetAccess ? 'Enabled' : 'Disabled'}
+                        <span className={`ml-2 font-medium ${sessionData?.configurations.internet ? 'text-green-600' : 'text-gray-400'}`}>
+                          {sessionData?.configurations.internet ? 'To be Applied' : 'Not Required'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Handout Data:</span>
+                        <span className={`ml-2 font-medium ${sessionData?.configurations.handoutdata ? 'text-green-600' : 'text-gray-400'}`}>
+                          {sessionData?.configurations.handoutdata ? 'To be Applied' : 'Not Required'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Reboot After Arming:</span>
+                        <span className={`ml-2 font-medium ${sessionData?.configurations.reboot ? 'text-green-600' : 'text-gray-400'}`}>
+                          {sessionData?.configurations.reboot ? 'To be Applied' : 'Not Required'}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  {sessionData?.configurations.dataHandout && (
+                  {sessionData?.description && (
                     <div className="border-l-4 border-green-500 pl-4">
-                      <h4 className="font-medium mb-2">Data Distribution</h4>
+                      <h4 className="font-medium mb-2">Session Description</h4>
                       <p className="text-sm text-muted-foreground">
-                        Course materials have been distributed to all machines in Lab {labId}
+                        {sessionData.description}
                       </p>
                     </div>
                   )}
