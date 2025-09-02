@@ -51,7 +51,7 @@ const labsData = [
 
 // Form validation types
 interface ValidationErrors {
-  lab?: string
+  labs?: string
   date?: string
   startTime?: string
   endTime?: string
@@ -65,12 +65,6 @@ const parseTime = (timeString: string | undefined) => {
   if (!timeString) return 0; // Return 0 if timeString is undefined or empty
   const [hours, minutes] = timeString.split(':').map(Number)
   return hours * 60 + minutes // Convert to minutes for easy comparison
-}
-
-const formatTimeForInput = (time: string) => {
-  // Ensure time is in HH:MM format for input fields
-  const [hours, minutes] = time.split(':')
-  return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`
 }
 
 const validateTimeRange = (startTime: string, endTime: string) => {
@@ -96,10 +90,10 @@ const validateTimeRange = (startTime: string, endTime: string) => {
   }
 }
 
-const hasTimeConflict = (sessions: any[], newSession: { lab: string, date: string, startTime: string, endTime: string }, excludeId?: string) => {
+const hasTimeConflict = (sessions: any[], newSession: { labs: string[], date: string, startTime: string, endTime: string }, excludeId?: string) => {
   return sessions.some(session => {
     if (excludeId && session.id === excludeId) return false
-    if (session.lab !== newSession.lab || session.date !== newSession.date) return false
+    if (!newSession.labs.includes(session.lab) || session.date !== newSession.date) return false
     
     // Check if session has valid time values
     if (!session.start_time && !session.startTime) return false
@@ -254,12 +248,14 @@ export default function SchedulePage() {
         startTime: session.start_time,
         endTime: session.end_time,
         purpose: session.purpose,
+        description: session.description, // NEW FIELD
         status: session.status,
         configurations: {
           windows: session.config_windows,
           internet: session.config_internet,
           homes: session.config_homes,
           userCleanup: session.config_user_cleanup,
+          handoutdata: session.config_handoutdata,
         },
         createdBy: session.created_by,
         createdByEmail: session.created_by_email,
@@ -302,20 +298,22 @@ export default function SchedulePage() {
     };
   }, [selectedDate, selectedView]);
 
-  // New session form state
+  // New session form state - UPDATED FOR MULTI-LAB SELECTION
   const [newSession, setNewSession] = useState({
-    lab: "",
+    labs: [] as string[], // Changed from single lab to array of labs
     date: selectedDate,
     startTime: "",
     endTime: "",
     purposeType: "",
     purpose: "",
     customPurpose: "",
+    description: "", // NEW FIELD
     configurations: {
       windows: false,
-      internet: true,
-      homes: true,
-      userCleanup: true,
+      internet: false,
+      homes: false,
+      userCleanup: false,
+      handoutdata: false,
     },
   })
 
@@ -350,13 +348,13 @@ export default function SchedulePage() {
     return userSession?.role === "BCDR" || userSession?.role === "Welcoming Team"
   }
 
-  // FIXED: Updated validation function that properly checks same day
+  // UPDATED: Validation function that checks for conflicts across all selected labs
   const validateForm = (): boolean => {
     const errors: ValidationErrors = {}
 
-    // Required field validation
-    if (!newSession.lab.trim()) {
-      errors.lab = "Please select a lab"
+    // Required field validation - UPDATED for multi-lab
+    if (!newSession.labs || newSession.labs.length === 0) {
+      errors.labs = "Please select at least one lab"
     }
 
     if (!newSession.date) {
@@ -419,10 +417,14 @@ export default function SchedulePage() {
       }
     }
 
-    // Check for time conflicts with existing sessions
-    if (newSession.lab && newSession.date && newSession.startTime && newSession.endTime) {
-      if (hasTimeConflict(sessions, newSession)) {
-        errors.general = "This time slot conflicts with an existing session in the selected lab"
+    // UPDATED: Check for time conflicts with existing sessions across all selected labs
+    if (newSession.labs.length > 0 && newSession.date && newSession.startTime && newSession.endTime) {
+      const conflictingLabs = newSession.labs.filter(lab => 
+        hasTimeConflict(sessions, { labs: [lab], date: newSession.date, startTime: newSession.startTime, endTime: newSession.endTime })
+      )
+      
+      if (conflictingLabs.length > 0) {
+        errors.general = `Time slot conflicts with existing sessions in lab(s): ${conflictingLabs.join(', ')}`
       }
     }
 
@@ -430,8 +432,8 @@ export default function SchedulePage() {
     return Object.keys(errors).length === 0
   }
 
-  // Handle form changes
-  const handleFormChange = (field: string, value: string | boolean | number) => {
+  // UPDATED: Handle form changes for multi-lab selection
+  const handleFormChange = (field: string, value: string | boolean | number | string[]) => {
     // Clear validation errors when user starts typing/selecting
     if (validationErrors[field as keyof ValidationErrors]) {
       setValidationErrors(prev => ({ ...prev, [field]: undefined }))
@@ -481,7 +483,24 @@ export default function SchedulePage() {
     }
   }
 
-  // Handle session creation
+  // UPDATED: Handle lab selection/deselection
+  const handleLabToggle = (labId: string) => {
+    const currentLabs = newSession.labs
+    const isSelected = currentLabs.includes(labId)
+    
+    let newLabs: string[]
+    if (isSelected) {
+      // Remove lab if already selected
+      newLabs = currentLabs.filter(id => id !== labId)
+    } else {
+      // Add lab if not selected
+      newLabs = [...currentLabs, labId]
+    }
+    
+    handleFormChange("labs", newLabs)
+  }
+
+  // UPDATED: Handle session creation for multiple labs
   const handleCreateSession = async () => {
     if (!validateForm()) return;
     setIsSubmitting(true);
@@ -490,27 +509,34 @@ export default function SchedulePage() {
       const tv = validateTimeRange(newSession.startTime, newSession.endTime);
       const needsReview = tv.duration > ADMIN_REVIEW_THRESHOLD;
 
-      const sessionData = {
-        lab: newSession.lab,
+      // Create session data template
+      const sessionTemplate = {
         date: newSession.date,
         start_time: newSession.startTime,
         end_time: newSession.endTime,
         purpose: newSession.purposeType === "other"
           ? newSession.customPurpose.trim()
           : newSession.purpose,
+        description: newSession.description.trim(),
         status: needsReview ? "under_review" : "confirmed",
         created_by: userSession?.name || "You",
         created_by_email: userSession?.email || "",
-        // Individual configuration columns (new structure)
         config_windows: newSession.configurations.windows,
         config_internet: newSession.configurations.internet,
         config_homes: newSession.configurations.homes,
         config_user_cleanup: newSession.configurations.userCleanup,
+        config_handoutdata: newSession.configurations.handoutdata,
       };
 
-      // Create a temporary session for optimistic UI update
-      const tempSession = {
-        id: `temp-${Date.now()}`,
+      // Create sessions for each selected lab
+      const sessionsToCreate = newSession.labs.map(labId => ({
+        ...sessionTemplate,
+        lab: labId,
+      }));
+
+      // Create temporary sessions for optimistic UI update
+      const tempSessions = sessionsToCreate.map((sessionData, index) => ({
+        id: `temp-${Date.now()}-${index}`,
         ...sessionData,
         startTime: sessionData.start_time,
         endTime: sessionData.end_time,
@@ -519,72 +545,90 @@ export default function SchedulePage() {
           internet: sessionData.config_internet,
           homes: sessionData.config_homes,
           userCleanup: sessionData.config_user_cleanup,
+          handoutdata: sessionData.config_handoutdata,
         },
         createdBy: sessionData.created_by,
         createdByEmail: sessionData.created_by_email,
-      };
+      }));
 
       // Optimistically update the UI
-      setSessions(prev => [...prev, tempSession]);
+      setSessions(prev => [...prev, ...tempSessions]);
 
+      // Insert all sessions at once
       const { data, error } = await supabase
         .from('sessions')
-        .insert([sessionData])
+        .insert(sessionsToCreate)
         .select();
 
       if (error) {
-        // Remove the temporary session if there's an error
-        setSessions(prev => prev.filter(s => s.id !== tempSession.id));
-        console.error('Error creating session:', error);
-        setValidationErrors({ general: "Failed to create session. Please try again." });
+        // Remove the temporary sessions if there's an error
+        setSessions(prev => prev.filter(s => !s.id.toString().startsWith('temp-')));
+        console.error('Error creating sessions:', error);
+        setValidationErrors({ general: "Failed to create sessions. Please try again." });
         return;
       }
 
-      // Replace the temporary session with the actual one from the database
+      // Replace the temporary sessions with the actual ones from the database
       if (data && data.length > 0) {
-        const actualSession = {
-          id: data[0].id,
-          lab: data[0].lab,
-          date: data[0].date,
-          startTime: data[0].start_time,
-          endTime: data[0].end_time,
-          purpose: data[0].purpose,
-          status: data[0].status,
+        const actualSessions = data.map(session => ({
+          id: session.id,
+          lab: session.lab,
+          date: session.date,
+          startTime: session.start_time,
+          endTime: session.end_time,
+          purpose: session.purpose,
+          description: session.description,
+          status: session.status,
           configurations: {
-            windows: data[0].config_windows,
-            internet: data[0].config_internet,
-            homes: data[0].config_homes,
-            userCleanup: data[0].config_user_cleanup,
+            windows: session.config_windows,
+            internet: session.config_internet,
+            homes: session.config_homes,
+            userCleanup: session.config_user_cleanup,
+            handoutdata: session.config_handoutdata,
           },
-          createdBy: data[0].created_by,
-          createdByEmail: data[0].created_by_email,
-        };
+          createdBy: session.created_by,
+          createdByEmail: session.created_by_email,
+        }));
 
-        setSessions(prev => prev.map(s => s.id === tempSession.id ? actualSession : s));
+        setSessions(prev => [
+          ...prev.filter(s => !s.id.toString().startsWith('temp-')),
+          ...actualSessions
+        ]);
       }
 
       setIsAddDialogOpen(false);
+      
+      const labCount = newSession.labs.length;
+      const labText = labCount === 1 ? `lab ${newSession.labs[0]}` : `${labCount} labs`;
+      
       showToast(needsReview
-        ? `Session scheduled! It requires admin approval (${Math.round(tv.duration/60)}h).`
-        : "Session scheduled successfully!",
+        ? `${labCount} session${labCount > 1 ? 's' : ''} scheduled in ${labText}! Admin approval required (${Math.round(tv.duration/60)}h).`
+        : `${labCount} session${labCount > 1 ? 's' : ''} scheduled successfully in ${labText}!`,
         needsReview ? "warning" : "success"
       );
 
       // Reset form
       setNewSession({
-        lab: "",
+        labs: [],
         date: selectedDate,
         startTime: "",
         endTime: "",
         purposeType: "",
         purpose: "",
         customPurpose: "",
-        configurations: { windows: false, internet: true, homes: true, userCleanup: true },
+        description: "",
+        configurations: { 
+          windows: false, 
+          internet: false, 
+          homes: false, 
+          userCleanup: false,
+          handoutdata: false,
+        },
       });
       setValidationErrors({});
     } catch (e) {
-      console.error('Error creating session:', e);
-      setValidationErrors({ general: "Failed to create session. Please try again." });
+      console.error('Error creating sessions:', e);
+      setValidationErrors({ general: "Failed to create sessions. Please try again." });
     } finally {
       setIsSubmitting(false);
     }
@@ -636,7 +680,8 @@ export default function SchedulePage() {
     const session = sessions.find((s) => s.id === sessionId)
     if (session) {
       if (canCheckIn(session.date, session.startTime, session.endTime)) {
-        router.push(`/labs/${session.lab}`)
+        // Pass session ID as a query parameter to the lab status page
+        router.push(`/labs/${session.lab}?session=${sessionId}`)
       } else {
         console.log('Check-in not available at this time')
       }
@@ -734,7 +779,7 @@ export default function SchedulePage() {
               <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Schedule New Session</DialogTitle>
-                  <DialogDescription>Create a new lab session with specific configurations.</DialogDescription>
+                  <DialogDescription>Create new lab session(s) with specific configurations.</DialogDescription>
                 </DialogHeader>
                 
                 {validationErrors.general && (
@@ -762,27 +807,35 @@ export default function SchedulePage() {
                         <p className="text-sm text-red-500">{validationErrors.date}</p>
                       )}
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="lab" className="text-sm font-medium">
-                        Lab <span className="text-red-500">*</span>
+                    
+                    {/* UPDATED: Multi-lab selection */}
+                    <div className="grid gap-2 col-span-2">
+                      <Label className="text-sm font-medium">
+                        Labs <span className="text-red-500">*</span>
                       </Label>
-                      <Select 
-                        value={newSession.lab} 
-                        onValueChange={(value) => handleFormChange("lab", value)}
-                      >
-                        <SelectTrigger className={validationErrors.lab ? "border-red-500" : ""}>
-                          <SelectValue placeholder="Select lab" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {labsData.map((lab) => (
-                            <SelectItem key={lab.id} value={lab.id}>
+                      <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg max-h-40 overflow-y-auto">
+                        {labsData.map((lab) => (
+                          <div key={lab.id} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`lab-${lab.id}`}
+                              checked={newSession.labs.includes(lab.id)}
+                              onChange={() => handleLabToggle(lab.id)}
+                              className="rounded border-gray-300"
+                            />
+                            <Label htmlFor={`lab-${lab.id}`} className="text-sm cursor-pointer">
                               Lab {lab.id} ({lab.capacity} seats)
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {validationErrors.lab && (
-                        <p className="text-sm text-red-500">{validationErrors.lab}</p>
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      {newSession.labs.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Selected: {newSession.labs.length} lab{newSession.labs.length > 1 ? 's' : ''} - {newSession.labs.join(', ')}
+                        </p>
+                      )}
+                      {validationErrors.labs && (
+                        <p className="text-sm text-red-500">{validationErrors.labs}</p>
                       )}
                     </div>
                   </div>
@@ -841,6 +894,11 @@ export default function SchedulePage() {
                           return (
                             <p className="text-sm text-muted-foreground">
                               Session duration: {Math.round(duration)} minutes ({hours.toFixed(1)} hours)
+                              {newSession.labs.length > 1 && (
+                                <span className="block text-xs mt-1">
+                                  This will create {newSession.labs.length} identical sessions
+                                </span>
+                              )}
                             </p>
                           )
                         }
@@ -893,6 +951,25 @@ export default function SchedulePage() {
                     </div>
                   )}
 
+                  {/* Description field */}
+                  <div className="grid gap-2">
+                    <Label htmlFor="description" className="text-sm font-medium">
+                      Description for the Session
+                    </Label>
+                    <Textarea
+                      id="description"
+                      placeholder="Provide additional details about this session (optional)"
+                      value={newSession.description}
+                      onChange={(e) => handleFormChange("description", e.target.value)}
+                      maxLength={500}
+                      rows={3}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Optional</span>
+                      <span>{newSession.description.length}/500</span>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Lab Configuration</Label>
                     <div className="grid grid-cols-2 gap-4">
@@ -936,6 +1013,16 @@ export default function SchedulePage() {
                         />
                         <Label htmlFor="userCleanup" className="text-sm">User Cleanup</Label>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="handoutdata"
+                          checked={newSession.configurations.handoutdata}
+                          onChange={(e) => handleFormChange("configurations.handoutdata", e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="handoutdata" className="text-sm">Handout Data</Label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -955,7 +1042,10 @@ export default function SchedulePage() {
                     onClick={handleCreateSession} 
                     disabled={isSubmitting}
                   >
-                    {isSubmitting ? "Scheduling..." : "Schedule Session"}
+                    {isSubmitting ? "Scheduling..." : 
+                     newSession.labs.length > 1 ? 
+                     `Schedule ${newSession.labs.length} Sessions` : 
+                     "Schedule Session"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -1072,6 +1162,11 @@ export default function SchedulePage() {
                                 </div>
                                 <p className="text-sm text-muted-foreground">Created by {session.createdBy}</p>
                                 
+                                {/* Display description if available */}
+                                {session.description && (
+                                  <p className="text-sm text-muted-foreground mt-1">{session.description}</p>
+                                )}
+                                
                                 {/* Session duration and admin review info */}
                                 <div className="mt-1">
                                   <p className="text-xs text-muted-foreground">
@@ -1111,6 +1206,7 @@ export default function SchedulePage() {
                                   {session.configurations.internet && <Badge variant="outline">Internet</Badge>}
                                   {session.configurations.homes && <Badge variant="outline">Home Dirs</Badge>}
                                   {session.configurations.userCleanup && <Badge variant="outline">User Cleanup</Badge>}
+                                  {session.configurations.handoutdata && <Badge variant="outline">Handout Data</Badge>}
                                 </div>
                               </div>
                             </div>
