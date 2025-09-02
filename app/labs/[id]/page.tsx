@@ -73,22 +73,20 @@ export default function LabStatusPage() {
   const queryUp = searchParams.get('up')
   const queryDown = searchParams.get('down')
   const queryTotal = searchParams.get('total')
-  const queryLoading = searchParams.get('loading') // Check if overview was still loading
   const fromOverview = queryUp !== null && queryDown !== null && queryTotal !== null
-  const overviewWasLoading = queryLoading === 'true'
   
   // State for machine status
   const [machinesUp, setMachinesUp] = useState(() => {
-    // Only use query params if coming from overview AND overview wasn't loading
-    return fromOverview && !overviewWasLoading ? parseInt(queryUp!) : 0
+    // Use query params if coming from overview (since labs are now always loaded)
+    return fromOverview ? parseInt(queryUp!) : 0
   })
   const [machinesDown, setMachinesDown] = useState(() => {
-    // Only use query params if coming from overview AND overview wasn't loading
-    return fromOverview && !overviewWasLoading ? parseInt(queryDown!) : totalMachines
+    // Use query params if coming from overview (since labs are now always loaded)
+    return fromOverview ? parseInt(queryDown!) : totalMachines
   })
   const [lastUpdated, setLastUpdated] = useState(() => {
-    // If coming from overview with valid data, show cache info
-    return fromOverview && !overviewWasLoading ? "From overview cache" : new Date().toLocaleTimeString()
+    // If coming from overview, show cache info
+    return fromOverview ? "From overview cache" : new Date().toLocaleTimeString()
   })
   
   // State for command execution
@@ -99,9 +97,9 @@ export default function LabStatusPage() {
   // Session data state - initially empty
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
 
-  // Fetch initial machine status only if not coming from overview OR if overview was still loading
+  // Fetch initial machine status only if not coming from overview
   useEffect(() => {
-    if (!fromOverview || overviewWasLoading) {
+    if (!fromOverview) {
       const fetchInitialStatus = async () => {
         try {
           setIsLoading('initial')
@@ -148,7 +146,7 @@ export default function LabStatusPage() {
       }
       setCommandResults([result])
     }
-  }, [fromOverview, overviewWasLoading, totalMachines, labId, queryUp, queryDown, queryTotal])
+  }, [fromOverview, totalMachines, labId, queryUp, queryDown, queryTotal])
 
   // Real command execution - calls your Node.js server with lab ID
   const executeCommand = async (command: string, description: string) => {
@@ -327,7 +325,7 @@ export default function LabStatusPage() {
     }
   }
 
-  // Manual refresh function - forces a fresh fetch regardless of how we got here
+  // Manual refresh function - forces a fresh fetch
   const refreshMachineStatus = async () => {
     setIsLoading('refresh')
     setError("")
@@ -561,7 +559,7 @@ export default function LabStatusPage() {
               </Link>
             </Button>
             <h1 className="text-xl font-bold">Lab {labId} Status & Control</h1>
-            {fromOverview && !overviewWasLoading && (
+            {fromOverview && (
               <Badge variant="secondary" className="bg-blue-100 text-blue-800">
                 From Overview
               </Badge>
@@ -579,7 +577,7 @@ export default function LabStatusPage() {
         )}
 
         {/* Show cache indicator if using data from overview */}
-        {fromOverview && !overviewWasLoading && (
+        {fromOverview && (
           <Alert className="mb-4 border-blue-200 bg-blue-50">
             <CheckCircle className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-800">
@@ -592,16 +590,6 @@ export default function LabStatusPage() {
               >
                 {isLoading === 'refresh' ? 'Refreshing...' : 'Click here to refresh from server'}
               </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Show loading alert if overview was still loading when we navigated here */}
-        {fromOverview && overviewWasLoading && (
-          <Alert className="mb-4 border-orange-200 bg-orange-50">
-            <Loader2 className="h-4 w-4 text-orange-600 animate-spin" />
-            <AlertDescription className="text-orange-800">
-              Lab Overview was still loading when you navigated here. Fetching fresh machine status data...
             </AlertDescription>
           </Alert>
         )}
@@ -651,7 +639,7 @@ export default function LabStatusPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Lab {labId} Status</CardTitle>
-                {(!fromOverview || overviewWasLoading) && (
+                {!fromOverview && (
                   <Button
                     variant="outline"
                     size="sm"

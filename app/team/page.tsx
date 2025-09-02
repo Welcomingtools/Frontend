@@ -3,25 +3,11 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { db } from "@/firebase/clientApp"
-import {
-  collection,
-  getDocs,
-  doc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  addDoc,
-  serverTimestamp,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User } from "lucide-react"
+import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
@@ -35,7 +21,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 type Member = {
   id: string
@@ -56,17 +43,17 @@ type UserSession = {
 
 type Report = {
   id: string
-  reportedUserId: string
-  reportedUserName: string
-  reportedUserEmail: string
-  reportedUserRole: string
-  reporterEmail: string
-  reporterName: string
-  reporterRole: string
-  reason: string                // issue type
+  reported_user_id: string
+  reported_user_name: string
+  reported_user_email: string
+  reported_user_role: string
+  reporter_email: string
+  reporter_name: string
+  reporter_role: string
+  reason: string
   details: string
   status: "Submitted" | "Resolved" | "Under Review"
-  createdAt?: any               // Firestore Timestamp
+  created_at: string
 }
 
 // Utility function to generate random password
@@ -87,22 +74,23 @@ export default function TeamPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [newMember, setNewMember] = useState({ name: "", email: "", role: "Welcoming Team" })
   const [editMember, setEditMember] = useState<Member | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [reportOpen, setReportOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<Member | null>(null)
   const [reportForm, setReportForm] = useState({ reason: "Incorrect role", details: "" })
   
-  //NEW 28/08
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
   const isWelcoming = userSession?.role === "Welcoming Team"
 
-  // NEW 28/08 Filtered list of members to display
+  // Filtered list of members to display
   const displayedMembers = isAdmin
-  ? teamData
-  : teamData.filter(m => m.role === userSession?.role)
+    ? teamData
+    : teamData.filter(m => m.role === userSession?.role)
 
-    // --- Feedback Hub state ---
+  // Feedback Hub state
   const [reports, setReports] = useState<Report[]>([])
   const [reportsLoading, setReportsLoading] = useState(true)
 
@@ -110,14 +98,13 @@ export default function TeamPage() {
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const [activeReport, setActiveReport] = useState<Report | null>(null)
 
-  // Local form for editing (non-admin can edit reason/details; admin can update status)
+  // Local form for editing
   const [reportEdit, setReportEdit] = useState({ reason: "", details: "", status: "Submitted" as Report["status"] })
 
-  // tiny util
-  const fmtDate = (ts?: any) => {
+  // Date formatter
+  const fmtDate = (dateStr: string) => {
     try {
-      const d: Date = ts?.toDate ? ts.toDate() : new Date(ts)
-      return d.toLocaleString()
+      return new Date(dateStr).toLocaleString()
     } catch {
       return "—"
     }
@@ -128,7 +115,6 @@ export default function TeamPage() {
     if (typeof window !== 'undefined') {
       const sessionData = sessionStorage.getItem('userSession')
       if (!sessionData) {
-        // No session, redirect to login
         router.push('/login')
         return
       }
@@ -150,92 +136,183 @@ export default function TeamPage() {
     }
   }, [router])
 
-  // Fetch members from Firestore (only if authorized)
+  // Fetch members from Supabase
   useEffect(() => {
     if (!isAuthorized) return
 
     const fetchMembers = async () => {
       try {
-        const snapshot = await getDocs(collection(db, "teamMembers"))
-        const members = snapshot.docs.map(doc => {
-          const data = doc.data()
-          
-          return {
-            id: doc.id,
-            ...data,
-          } as Member
-        })
+        setLoading(true)
+        setError(null)
+        
+        // For non-admin users, we'll filter by role in the frontend
+        // since RLS policies might not allow them to query all data
+        const { data, error } = await supabase
+          .from('team_members')
+          .select('*')
+
+        if (error) {
+          console.error("Error fetching members:", error)
+          setError("Failed to fetch team members: " + error.message)
+          return
+        }
+
+        if (!data) {
+          setTeamData([])
+          return
+        }
+
+        const members = data.map(row => ({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          role: row.role,
+          status: row.status as "Active" | "Inactive",
+          password: row.password
+        }))
+
         setTeamData(members)
       } catch (error) {
         console.error("Error fetching members:", error)
+        setError("An unexpected error occurred while fetching team members")
+      } finally {
+        setLoading(false)
       }
     }
 
     fetchMembers()
   }, [isAuthorized])
 
-  //Fetching Reports
+  // Fetching Reports with real-time subscription
   useEffect(() => {
-  if (!userSession) return;
+    if (!userSession) return
 
-  setReportsLoading(true);
+    setReportsLoading(true)
+    const userEmail = (userSession.email || "").toLowerCase().trim()
 
-  const base = collection(db, "userReports");
-  const userEmail = (userSession.email || "").toLowerCase().trim(); // normalize
+    // Function to fetch reports
+    const fetchReports = async () => {
+      try {
+        let query = supabase
+          .from('user_reports')
+          .select('*')
 
-  const q = isAdmin
-    ? query(base, orderBy("createdAt", "desc"))
-    : query(
-        base,
-        where("reporterEmail", "==", userEmail),
-        orderBy("createdAt", "desc")
-      );
+        if (!isAdmin) {
+          query = query.eq('reporter_email', userEmail)
+        }
 
-  const unsubscribe = onSnapshot(
-    q,
-    (snap) => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as Report[];
-      setReports(rows);
-      setReportsLoading(false);
-    },
-    (err) => {
-      console.error("Feedback Hub subscription error:", err);
-      setReportsLoading(false);
+        const { data, error } = await query
+
+        if (error) {
+          console.error("Error fetching reports:", error)
+          setReportsLoading(false)
+          return
+        }
+
+        setReports(data || [])
+        setReportsLoading(false)
+      } catch (error) {
+        console.error("Error fetching reports:", error)
+        setReportsLoading(false)
+      }
     }
-  );
 
-  return () => unsubscribe();
-  }, [isAdmin, userSession?.email]);
+    // Initial fetch
+    fetchReports()
 
+    // Set up real-time subscription using the new API
+    let channel: RealtimeChannel
 
+    if (isAdmin) {
+      // Admin sees all reports
+      channel = supabase
+        .channel('admin-reports')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_reports'
+          },
+          (payload) => {
+            console.log('Reports changed:', payload)
+            fetchReports()
+          }
+        )
+        .subscribe()
+    } else {
+      // Non-admin sees only their own reports
+      channel = supabase
+        .channel('user-reports')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_reports',
+            filter: `reporter_email=eq.${userEmail}`
+          },
+          (payload) => {
+            console.log('Reports changed:', payload)
+            fetchReports()
+          }
+        )
+        .subscribe()
+    }
 
+    // Cleanup subscription
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
+    }
+  }, [isAdmin, userSession?.email])
 
   // Add new member
   const handleAddMember = async () => {
     if (!newMember.name || !newMember.email) return
 
-    const id = newMember.email.toLowerCase()
-    const memberRef = doc(db, "teamMembers", id)
-
-    // Generate random password
     const password = generateRandomPassword()
 
     try {
-      await setDoc(memberRef, {
-        ...newMember,
-        status: "Active",
-        password,
-      })
+      const { data, error } = await supabase
+        .from('team_members')
+        .insert([{
+          name: newMember.name,
+          email: newMember.email,
+          role: newMember.role,
+          status: "Active",
+          password: password
+        }])
+        .select()
 
-      setTeamData([...teamData, { id, ...newMember, status: "Active", password }])
+      if (error) {
+        console.error("Error adding member:", error)
+        alert("Failed to add member: " + error.message)
+        return
+      }
+
+      // Update local state
+      if (data && data[0]) {
+        const newMemberData = {
+          id: data[0].id,
+          name: data[0].name,
+          email: data[0].email,
+          role: data[0].role,
+          status: data[0].status as "Active" | "Inactive",
+          password: data[0].password
+        }
+        setTeamData([newMemberData, ...teamData])
+      }
+
       setNewMember({ name: "", email: "", role: "Welcoming Team" })
       setIsAddDialogOpen(false)
 
-      // Show password to admin (they can send it manually)
       console.log("Member added successfully! Temporary password:", password)
       alert(`Temporary password for ${newMember.name}: ${password}`)
     } catch (err) {
       console.error("Error adding member:", err)
+      alert("Failed to add member. Please check your Supabase RLS policies.")
     }
   }
 
@@ -243,28 +320,50 @@ export default function TeamPage() {
   const handleEditMember = async () => {
     if (!editMember) return
 
-    const memberRef = doc(db, "teamMembers", editMember.id)
-
     try {
-      await updateDoc(memberRef, {
-        name: editMember.name,
-        email: editMember.email,
-        role: editMember.role,
-      })
+      const { error } = await supabase
+        .from('team_members')
+        .update({
+          name: editMember.name,
+          email: editMember.email,
+          role: editMember.role,
+        })
+        .eq('id', editMember.id)
+
+      if (error) {
+        console.error("Error editing member:", error)
+        alert("Failed to update member: " + error.message)
+        return
+      }
+
       setTeamData(teamData.map(m => (m.id === editMember.id ? editMember : m)))
       setEditMember(null)
     } catch (err) {
       console.error("Error editing member:", err)
+      alert("Failed to update member")
     }
   }
 
   // Delete member
   const handleDeleteMember = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this team member?")) return
+    
     try {
-      await deleteDoc(doc(db, "teamMembers", id))
+      const { error } = await supabase
+        .from('team_members')
+        .delete()
+        .eq('id', id)
+
+      if (error) {
+        console.error("Error deleting member:", error)
+        alert("Failed to delete member: " + error.message)
+        return
+      }
+
       setTeamData(teamData.filter(member => member.id !== id))
     } catch (err) {
       console.error("Error deleting member:", err)
+      alert("Failed to delete member")
     }
   }
 
@@ -274,75 +373,109 @@ export default function TeamPage() {
     if (!member) return
 
     const newStatus = member.status === "Active" ? "Inactive" : "Active"
+    
     try {
-      await updateDoc(doc(db, "teamMembers", id), { status: newStatus })
+      const { error } = await supabase
+        .from('team_members')
+        .update({ status: newStatus })
+        .eq('id', id)
+
+      if (error) {
+        console.error("Error updating status:", error)
+        alert("Failed to update status: " + error.message)
+        return
+      }
+
       setTeamData(teamData.map(m => (m.id === id ? { ...m, status: newStatus } : m)))
     } catch (err) {
       console.error("Error updating status:", err)
+      alert("Failed to update status")
     }
   }
 
-  //Reporting feature
-  //REPORT HELPERS 
+  // Reporting feature
   const openReport = (member: Member) => {
-    setReportTarget(member); // Member | null
-    setReportForm({ reason: "Incorrect role", details: "" });
-    setReportOpen(true);     // opens the "Create report" dialog
-  };
+    setReportTarget(member)
+    setReportForm({ reason: "Incorrect role", details: "" })
+    setReportOpen(true)
+  }
 
   const submitReport = async () => {
-  if (!reportTarget || !userSession) return
-  try {
-    await addDoc(collection(db, "userReports"), {
-      reportedUserId: reportTarget.id,
-      reportedUserName: reportTarget.name,
-      reportedUserEmail: reportTarget.email.toLowerCase().trim(),
-      reportedUserRole: reportTarget.role,
+    if (!reportTarget || !userSession) return
+    
+    try {
+      const { error } = await supabase
+        .from('user_reports')
+        .insert([{
+          reported_user_id: reportTarget.id,
+          reported_user_name: reportTarget.name,
+          reported_user_email: reportTarget.email.toLowerCase().trim(),
+          reported_user_role: reportTarget.role,
+          reporter_email: userSession.email.toLowerCase().trim(),
+          reporter_name: userSession.name,
+          reporter_role: userSession.role,
+          reason: reportForm.reason,
+          details: reportForm.details,
+          status: "Submitted"
+        }])
 
-      reporterEmail: userSession.email.toLowerCase().trim(),
-      reporterName: userSession.name,
-      reporterRole: userSession.role,
+      if (error) {
+        console.error("Report failed:", error)
+        alert("Failed to submit report: " + error.message)
+        return
+      }
 
-      reason: reportForm.reason,
-      details: reportForm.details,
-      status: "Submitted",
-      createdAt: serverTimestamp(),
-    })
-    setReportOpen(false)
-    alert("Report submitted. Thank you!")
-  } catch (e) {
-    console.error("Report failed:", e)
-    alert("Failed to submit report.")
-  }
+      setReportOpen(false)
+      alert("Report submitted. Thank you!")
+    } catch (e) {
+      console.error("Report failed:", e)
+      alert("Failed to submit report.")
+    }
   }
 
   const openReportDialog = (r: Report) => {
-  setActiveReport(r)
-  setReportEdit({ reason: r.reason, details: r.details, status: r.status })
-  setReportDialogOpen(true)
+    setActiveReport(r)
+    setReportEdit({ reason: r.reason, details: r.details, status: r.status })
+    setReportDialogOpen(true)
   }
 
   const saveReportEdits = async () => {
     if (!activeReport) return
+    
     try {
-      const ref = doc(db, "userReports", activeReport.id)
-      // Non-admin: can edit reason/details only
-      // Admin: can change status (and may also update reason/details if you want—here we keep it status-only for admin)
+      let updateData: any = {}
+      
       if (isAdmin) {
-        await updateDoc(ref, { status: reportEdit.status })
-        setReports(prev => prev.map(r => r.id === activeReport.id ? { ...r, status: reportEdit.status as Report["status"] } : r))
+        updateData.status = reportEdit.status
       } else {
-        await updateDoc(ref, { reason: reportEdit.reason, details: reportEdit.details })
-        setReports(prev => prev.map(r => r.id === activeReport.id ? { ...r, reason: reportEdit.reason, details: reportEdit.details } : r))
+        updateData.reason = reportEdit.reason
+        updateData.details = reportEdit.details
       }
+
+      const { error } = await supabase
+        .from('user_reports')
+        .update(updateData)
+        .eq('id', activeReport.id)
+
+      if (error) {
+        console.error("Failed to update report:", error)
+        alert("Failed to update report: " + error.message)
+        return
+      }
+
+      // Update local state
+      setReports(prev => prev.map(r => 
+        r.id === activeReport.id 
+          ? { ...r, ...updateData }
+          : r
+      ))
+      
       setReportDialogOpen(false)
     } catch (e) {
       console.error("Failed to update report:", e)
       alert("Failed to update report")
     }
   }
-
-
 
   // Show loading state while checking authorization
   if (userSession === null) {
@@ -356,7 +489,7 @@ export default function TeamPage() {
     )
   }
 
-  // Show access denied for BCDR users
+  // Show access denied for unauthorized users
   if (!isAuthorized) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -488,120 +621,138 @@ export default function TeamPage() {
       </header>
 
       <main className="flex-1 container mx-auto p-4">
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        
         <Card>
           <CardHeader>
             <CardTitle>Team Members</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              
-              {displayedMembers.map(member => (
-                <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${member.name}`} />
-                      <AvatarFallback className="bg-[#0f4d92] text-white">
-                        <User className="h-5 w-5" />
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{member.name}</p>
-                      <p className="text-sm text-muted-foreground">{member.email}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline">{member.role}</Badge>
-                        <Badge variant={member.status === "Active" ? "default" : "secondary"}>
-                          {member.status}
-                        </Badge>
+            {loading ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-[#0f4d92]" />
+                <span className="ml-2">Loading team members...</span>
+              </div>
+            ) : displayedMembers.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No team members found.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {displayedMembers.map(member => (
+                  <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${member.name}`} />
+                        <AvatarFallback className="bg-[#0f4d92] text-white">
+                          <User className="h-5 w-5" />
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium">{member.name}</p>
+                        <p className="text-sm text-muted-foreground">{member.email}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline">{member.role}</Badge>
+                          <Badge variant={member.status === "Active" ? "default" : "secondary"}>
+                            {member.status}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
+
+                    {/* Actions for Admins */}
+                    {isAdmin && (
+                      <div className="flex items-center gap-2">
+                        
+                        {/* Edit */}
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => setEditMember(member)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Edit Team Member</DialogTitle>
+                              <DialogDescription>Update team member information.</DialogDescription>
+                            </DialogHeader>
+                            {editMember && (
+                              <div className="grid gap-4 py-4">
+                                <div className="grid gap-2">
+                                  <Label htmlFor="edit-name">Full Name</Label>
+                                  <Input
+                                    id="edit-name"
+                                    value={editMember.name}
+                                    onChange={e => setEditMember({ ...editMember, name: e.target.value })}
+                                  />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label htmlFor="edit-email">Email</Label>
+                                  <Input
+                                    id="edit-email"
+                                    type="email"
+                                    value={editMember.email}
+                                    onChange={e => setEditMember({ ...editMember, email: e.target.value })}
+                                  />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label htmlFor="edit-role">Role</Label>
+                                  <Select
+                                    value={editMember.role}
+                                    onValueChange={value => setEditMember({ ...editMember, role: value })}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select role" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="Admin">Admin</SelectItem>
+                                      <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
+                                      <SelectItem value="BCDR">BCDR</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            )}
+                            <DialogFooter>
+                              <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
+                              <Button onClick={handleEditMember}>Save Changes</Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+
+                        {/* Toggle Status */}
+                        <Button variant="ghost" size="icon" onClick={() => handleStatusToggle(member.id)}>
+                          <Badge variant={member.status === "Active" ? "destructive" : "default"}>
+                            {member.status === "Active" ? "Deactivate" : "Activate"}
+                          </Badge>
+                        </Button>
+
+                        {/* Delete */}
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteMember(member.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                    {/* Actions for non-admins: Report only */}
+                    {!isAdmin && (
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" className="border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10" onClick={() => openReport(member)}>
+                          Report
+                        </Button>
+                      </div>
+                    )}
                   </div>
-
-                  {/* Actions */}
-                  {isAdmin && (
-                    <div className="flex items-center gap-2">
-                      
-                      {/* Edit */}
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button variant="ghost" size="icon" onClick={() => setEditMember(member)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Edit Team Member</DialogTitle>
-                            <DialogDescription>Update team member information.</DialogDescription>
-                          </DialogHeader>
-                          {editMember && (
-                            <div className="grid gap-4 py-4">
-                              <div className="grid gap-2">
-                                <Label htmlFor="edit-name">Full Name</Label>
-                                <Input
-                                  id="edit-name"
-                                  value={editMember.name}
-                                  onChange={e => setEditMember({ ...editMember, name: e.target.value })}
-                                />
-                              </div>
-                              <div className="grid gap-2">
-                                <Label htmlFor="edit-email">Email</Label>
-                                <Input
-                                  id="edit-email"
-                                  type="email"
-                                  value={editMember.email}
-                                  onChange={e => setEditMember({ ...editMember, email: e.target.value })}
-                                />
-                              </div>
-                              <div className="grid gap-2">
-                                <Label htmlFor="edit-role">Role</Label>
-                                <Select
-                                  value={editMember.role}
-                                  onValueChange={value => setEditMember({ ...editMember, role: value })}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select role" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Admin">Admin</SelectItem>
-                                    <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
-                                    <SelectItem value="BCDR">BCDR</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                          )}
-                          <DialogFooter>
-                            <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
-                            <Button onClick={handleEditMember}>Save Changes</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-
-                      {/* Toggle Status */}
-                      <Button variant="ghost" size="icon" onClick={() => handleStatusToggle(member.id)}>
-                        <Badge variant={member.status === "Active" ? "destructive" : "default"}>
-                          {member.status === "Active" ? "Deactivate" : "Activate"}
-                        </Badge>
-                      </Button>
-
-                      {/* Delete */}
-                      <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteMember(member.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                  {/* Actions for non-admins: Report only */}
-                  {!isAdmin && (
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10" onClick={() => openReport(member)}>
-                        Report
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
+
         {/* FEEDBACK HUB */}
         <Card className="mt-6">
           <CardHeader>
@@ -609,7 +760,10 @@ export default function TeamPage() {
           </CardHeader>
           <CardContent>
             {reportsLoading ? (
-              <p className="text-sm text-muted-foreground">Loading reports…</p>
+              <div className="flex justify-center items-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-[#0f4d92] mr-2" />
+                <span>Loading reports…</span>
+              </div>
             ) : reports.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {isAdmin ? "No reports have been filed yet." : "You haven't submitted any reports yet."}
@@ -624,17 +778,17 @@ export default function TeamPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <Badge variant={r.status === "Submitted" ? "default" : "outline"}>{r.status}</Badge>
-                        <span className="text-sm text-muted-foreground">{fmtDate(r.createdAt)}</span>
+                        <span className="text-sm text-muted-foreground">{fmtDate(r.created_at)}</span>
                       </div>
                       <div className="text-sm">
-                        <span className="font-medium">Filed on:</span> {r.reportedUserName} ({r.reportedUserRole})
+                        <span className="font-medium">Filed on:</span> {r.reported_user_name} ({r.reported_user_role})
                       </div>
                       <div className="text-sm">
                         <span className="font-medium">Issue:</span> {r.reason}
                       </div>
                       {isAdmin && (
                         <div className="text-xs text-muted-foreground">
-                          <span className="font-medium">Filed by:</span> {r.reporterName} &lt;{r.reporterEmail}&gt; ({r.reporterRole})
+                          <span className="font-medium">Filed by:</span> {r.reporter_name} &lt;{r.reporter_email}&gt; ({r.reporter_role})
                         </div>
                       )}
                     </div>
@@ -649,11 +803,13 @@ export default function TeamPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Report Creation Dialog */}
         <Dialog open={reportOpen} onOpenChange={setReportOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Report {reportTarget?.name}</DialogTitle>
-              <DialogDescription>Tell us what’s wrong. This will notify admins to review.</DialogDescription>
+              <DialogDescription>Tell us what's wrong. This will notify admins to review.</DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 py-4">
@@ -694,6 +850,7 @@ export default function TeamPage() {
           </DialogContent>
         </Dialog>
 
+        {/* Report Details Dialog */}
         <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
           <DialogContent>
             <DialogHeader>
@@ -702,7 +859,7 @@ export default function TeamPage() {
               </DialogTitle>
               <DialogDescription>
                 {activeReport
-                  ? `Report on ${activeReport.reportedUserName} · ${fmtDate(activeReport.createdAt)}`
+                  ? `Report on ${activeReport.reported_user_name} · ${fmtDate(activeReport.created_at)}`
                   : ""}
               </DialogDescription>
             </DialogHeader>
@@ -713,7 +870,7 @@ export default function TeamPage() {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <div className="text-muted-foreground">Filed on</div>
-                    <div>{activeReport.reportedUserName} ({activeReport.reportedUserRole})</div>
+                    <div>{activeReport.reported_user_name} ({activeReport.reported_user_role})</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Status</div>
@@ -741,7 +898,7 @@ export default function TeamPage() {
                   {isAdmin && (
                     <div className="col-span-2">
                       <div className="text-muted-foreground">Filed by</div>
-                      <div>{activeReport.reporterName} &lt;{activeReport.reporterEmail}&gt; ({activeReport.reporterRole})</div>
+                      <div>{activeReport.reporter_name} &lt;{activeReport.reporter_email}&gt; ({activeReport.reporter_role})</div>
                     </div>
                   )}
                 </div>
@@ -780,7 +937,7 @@ export default function TeamPage() {
                   </>
                 )}
 
-                {/* Read-only preview for Admin (optional) */}
+                {/* Read-only preview for Admin */}
                 {isAdmin && (
                   <div className="grid gap-2">
                     <Label>Submitted Details</Label>
