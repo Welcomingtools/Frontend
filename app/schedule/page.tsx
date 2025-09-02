@@ -60,7 +60,9 @@ interface ValidationErrors {
 }
 
 // Time validation helper functions
-const parseTime = (timeString: string) => {
+
+const parseTime = (timeString: string | undefined) => {
+  if (!timeString) return 0; // Return 0 if timeString is undefined or empty
   const [hours, minutes] = timeString.split(':').map(Number)
   return hours * 60 + minutes // Convert to minutes for easy comparison
 }
@@ -99,8 +101,12 @@ const hasTimeConflict = (sessions: any[], newSession: { lab: string, date: strin
     if (excludeId && session.id === excludeId) return false
     if (session.lab !== newSession.lab || session.date !== newSession.date) return false
     
-    const existingStart = parseTime(session.start_time)
-    const existingEnd = parseTime(session.end_time)
+    // Check if session has valid time values
+    if (!session.start_time && !session.startTime) return false
+    if (!session.end_time && !session.endTime) return false
+    
+    const existingStart = parseTime(session.start_time || session.startTime)
+    const existingEnd = parseTime(session.end_time || session.endTime)
     const newStart = parseTime(newSession.startTime)
     const newEnd = parseTime(newSession.endTime)
     
@@ -147,13 +153,6 @@ const getCheckInStatus = (sessionDate: string, startTime: string, endTime: strin
   } else {
     return "Check-in available"
   }
-}
-
-// Time validation helper function
-const hasTimePassed = (date: string, time: string) => {
-  const now = new Date()
-  const timeDateTime = getSessionDateTime(date, time)
-  return timeDateTime < now
 }
 
 // User session type
@@ -213,71 +212,70 @@ export default function SchedulePage() {
     }
   }, [toast])
 
+  // Function to load sessions
+  const loadSessions = async () => {
+    setIsLoading(true);
+    try {
+      let query = supabase
+        .from('sessions')
+        .select('*')
+        .order('start_time');
+
+      if (selectedView === "day") {
+        // Single day
+        query = query.eq('date', selectedDate);
+      } else {
+        // Whole week
+        const d = new Date(selectedDate);
+        const day = d.getDay(); // 0=Sun
+        const start = new Date(d); start.setDate(d.getDate() - day);
+        const end = new Date(d); end.setDate(d.getDate() + (6 - day));
+        const toStr = (x: Date) => x.toISOString().split("T")[0];
+
+        query = query
+          .gte('date', toStr(start))
+          .lte('date', toStr(end))
+          .order('date');
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error loading sessions:', error);
+        showToast("Failed to load sessions.", "error");
+        return;
+      }
+
+      // Transform data to match the frontend expectations
+      const transformedSessions = data?.map(session => ({
+        id: session.id,
+        lab: session.lab,
+        date: session.date,
+        startTime: session.start_time,
+        endTime: session.end_time,
+        purpose: session.purpose,
+        status: session.status,
+        configurations: {
+          windows: session.config_windows,
+          internet: session.config_internet,
+          homes: session.config_homes,
+          userCleanup: session.config_user_cleanup,
+        },
+        createdBy: session.created_by,
+        createdByEmail: session.created_by_email,
+      })) || [];
+
+      setSessions(transformedSessions);
+    } catch (err) {
+      console.error('Error loading sessions:', err);
+      showToast("Failed to load sessions.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Load sessions (real-time) for the selected day/week
   useEffect(() => {
-    setIsLoading(true);
-
-    const loadSessions = async () => {
-      try {
-        let query = supabase
-          .from('sessions')
-          .select('*')
-          .neq('status', 'cancelled')
-          .order('start_time');
-
-        if (selectedView === "day") {
-          // Single day
-          query = query.eq('date', selectedDate);
-        } else {
-          // Whole week
-          const d = new Date(selectedDate);
-          const day = d.getDay(); // 0=Sun
-          const start = new Date(d); start.setDate(d.getDate() - day);
-          const end = new Date(d); end.setDate(d.getDate() + (6 - day));
-          const toStr = (x: Date) => x.toISOString().split("T")[0];
-
-          query = query
-            .gte('date', toStr(start))
-            .lte('date', toStr(end))
-            .order('date');
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-          console.error('Error loading sessions:', error);
-          showToast("Failed to load sessions.", "error");
-          return;
-        }
-
-        // Transform data to match the frontend expectations
-        const transformedSessions = data?.map(session => ({
-          id: session.id,
-          lab: session.lab,
-          date: session.date,
-          startTime: session.start_time,
-          endTime: session.end_time,
-          purpose: session.purpose,
-          status: session.status,
-          configurations: {
-            windows: session.config_windows,
-            internet: session.config_internet,
-            homes: session.config_homes,
-            userCleanup: session.config_user_cleanup,
-          },
-          createdBy: session.created_by,
-          createdByEmail: session.created_by_email,
-        })) || [];
-
-        setSessions(transformedSessions);
-      } catch (err) {
-        console.error('Error loading sessions:', err);
-        showToast("Failed to load sessions.", "error");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     loadSessions();
 
     // Set up real-time subscription
@@ -291,7 +289,10 @@ export default function SchedulePage() {
         }, 
         (payload) => {
           console.log('Real-time update:', payload);
-          loadSessions(); // Reload sessions when changes occur
+          // Add a small delay to ensure the database transaction is complete
+          setTimeout(() => {
+            loadSessions();
+          }, 100);
         }
       )
       .subscribe();
@@ -323,9 +324,8 @@ export default function SchedulePage() {
     setNewSession(prev => ({ ...prev, date: selectedDate }))
   }, [selectedDate])
 
-  // Filter sessions based on selected date (exclude cancelled sessions from main view)
+  // Filter sessions based on selected date
   const filteredSessions = sessions
-    .filter((s) => s.status !== "cancelled")
     .sort((a, b) => {
       // Same date → sort by startTime
       if (a.date === b.date) {
@@ -350,7 +350,7 @@ export default function SchedulePage() {
     return userSession?.role === "BCDR" || userSession?.role === "Welcoming Team"
   }
 
-  // Validation functions
+  // FIXED: Updated validation function that properly checks same day
   const validateForm = (): boolean => {
     const errors: ValidationErrors = {}
 
@@ -366,6 +366,7 @@ export default function SchedulePage() {
       const selectedDateObj = new Date(newSession.date)
       const today = new Date()
       today.setHours(0, 0, 0, 0)
+      selectedDateObj.setHours(0, 0, 0, 0) // Ensure we're comparing dates only
       
       if (selectedDateObj < today) {
         errors.date = "Cannot schedule sessions for past dates"
@@ -376,10 +377,16 @@ export default function SchedulePage() {
     if (!newSession.startTime) {
       errors.startTime = "Please select a start time"
     } else {
-      // Check if start time has passed (only for today's date)
+      // Check if start time has passed ONLY if the selected date is today
       const today = new Date().toISOString().split("T")[0]
-      if (newSession.date === today && hasTimePassed(newSession.date, newSession.startTime)) {
-        errors.startTime = "Start time has already passed. Please choose a future time."
+      if (newSession.date === today) {
+        // Only validate against current time if it's today's date
+        const now = new Date()
+        const selectedDateTime = getSessionDateTime(newSession.date, newSession.startTime)
+        
+        if (selectedDateTime < now) {
+          errors.startTime = "Start time has already passed. Please choose a future time."
+        }
       }
     }
 
@@ -501,14 +508,59 @@ export default function SchedulePage() {
         config_user_cleanup: newSession.configurations.userCleanup,
       };
 
-      const { error } = await supabase
+      // Create a temporary session for optimistic UI update
+      const tempSession = {
+        id: `temp-${Date.now()}`,
+        ...sessionData,
+        startTime: sessionData.start_time,
+        endTime: sessionData.end_time,
+        configurations: {
+          windows: sessionData.config_windows,
+          internet: sessionData.config_internet,
+          homes: sessionData.config_homes,
+          userCleanup: sessionData.config_user_cleanup,
+        },
+        createdBy: sessionData.created_by,
+        createdByEmail: sessionData.created_by_email,
+      };
+
+      // Optimistically update the UI
+      setSessions(prev => [...prev, tempSession]);
+
+      const { data, error } = await supabase
         .from('sessions')
-        .insert([sessionData]);
+        .insert([sessionData])
+        .select();
 
       if (error) {
+        // Remove the temporary session if there's an error
+        setSessions(prev => prev.filter(s => s.id !== tempSession.id));
         console.error('Error creating session:', error);
         setValidationErrors({ general: "Failed to create session. Please try again." });
         return;
+      }
+
+      // Replace the temporary session with the actual one from the database
+      if (data && data.length > 0) {
+        const actualSession = {
+          id: data[0].id,
+          lab: data[0].lab,
+          date: data[0].date,
+          startTime: data[0].start_time,
+          endTime: data[0].end_time,
+          purpose: data[0].purpose,
+          status: data[0].status,
+          configurations: {
+            windows: data[0].config_windows,
+            internet: data[0].config_internet,
+            homes: data[0].config_homes,
+            userCleanup: data[0].config_user_cleanup,
+          },
+          createdBy: data[0].created_by,
+          createdByEmail: data[0].created_by_email,
+        };
+
+        setSessions(prev => prev.map(s => s.id === tempSession.id ? actualSession : s));
       }
 
       setIsAddDialogOpen(false);
@@ -538,32 +590,39 @@ export default function SchedulePage() {
     }
   };
 
-  // Handle session cancellation
+  // UPDATED: Handle session deletion instead of cancellation
   const handleCancelSession = async (sessionId: string) => {
     const s = sessions.find(x => x.id === sessionId);
     if (!s) return;
 
     const ok = window.confirm(
-      `Are you sure you want to cancel "${s.purpose}" on ${formatDate(s.date)} at ${formatTime(s.startTime)}?`
+      `Are you sure you want to delete "${s.purpose}" on ${formatDate(s.date)} at ${formatTime(s.startTime)}? This action cannot be undone.`
     );
     if (!ok) return;
 
     try {
+      // Optimistically remove from UI
+      setSessions(prev => prev.filter(session => session.id !== sessionId));
+
       const { error } = await supabase
         .from('sessions')
-        .update({ status: 'cancelled' })
+        .delete()
         .eq('id', sessionId);
 
       if (error) {
-        console.error('Error cancelling session:', error);
-        showToast("Failed to cancel session.", "error");
+        // Revert the optimistic update if there's an error
+        setSessions(prev => [...prev, s]);
+        console.error('Error deleting session:', error);
+        showToast("Failed to delete session.", "error");
         return;
       }
 
-      showToast("Session cancelled successfully.", "success");
+      showToast("Session deleted successfully.", "success");
     } catch (e) {
-      console.error('Error cancelling session:', e);
-      showToast("Failed to cancel session.", "error");
+      // Revert the optimistic update if there's an error
+      setSessions(prev => [...prev, s]);
+      console.error('Error deleting session:', e);
+      showToast("Failed to delete session.", "error");
     }
   };
 
@@ -1073,7 +1132,7 @@ export default function SchedulePage() {
                                     size="icon"
                                     onClick={() => handleCancelSession(session.id)}
                                     className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                    title="Cancel Session"
+                                    title="Delete Session"
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
