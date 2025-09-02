@@ -1523,21 +1523,31 @@ export default function LabsOverview() {
                     )}
                   </div>
                   <Link 
-                  href={{
-                    pathname: `/labs/${lab.id}`,
-                    query: { 
-                      up: lab.machinesUp,
-                      down: lab.machinesDown,
-                      total: lab.totalMachines,
-                      loading: lab.isLoading ? 'true' : 'false'  // ADD THIS LINE
-                    }
-                  }} 
-                  className="block"
-                >
-                  <Button className="w-full bg-[#1e40af] hover:bg-[#1d4ed8] text-sm">
-                  Lab Dashboard
-                  </Button>
-                </Link>
+                    href={{
+                      pathname: `/labs/${lab.id}`,
+                      query: { 
+                        up: lab.machinesUp,
+                        down: lab.machinesDown,
+                        total: lab.totalMachines,
+                        loading: lab.isLoading ? 'true' : 'false'
+                      }
+                    }} 
+                    className={`block ${lab.isLoading ? 'pointer-events-none' : ''}`}
+                  >
+                    <Button 
+                      className="w-full bg-[#1e40af] hover:bg-[#1d4ed8] text-sm"
+                      disabled={lab.isLoading}
+                    >
+                      {lab.isLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        "Lab Dashboard"
+                      )}
+                    </Button>
+                  </Link>
                 </CardContent>
               </Card>
             )
