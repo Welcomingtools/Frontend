@@ -23,17 +23,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  addDoc,
-  doc,
-  updateDoc,
-  serverTimestamp
-} from "firebase/firestore"
-import { db } from "@/firebase/clientApp" // adjust path if your alias differs
+import { createClient } from '@supabase/supabase-js'
+
+// Initialize Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 // Lab configuration data
 const labsData = [
@@ -101,7 +96,7 @@ const statusOptions = [
   { id: "resolved", name: "Resolved", color: "bg-green-100 text-green-800" },
 ]
 
-// Issue interface for Firestore-backed data
+// Issue interface for Supabase data - Updated to remove assigned_to and add resolved_by
 interface Issue {
   id: string
   lab: string
@@ -110,12 +105,11 @@ interface Issue {
   category: string
   severity: string
   status: string
-  reportedBy: string
-  reportedAt?: any // Firestore Timestamp or string
-  assignedTo: string | null
-  updatedAt?: any
-  machineId: string
-  createdAt?: any
+  reported_by: string
+  created_at: string
+  resolved_by: string | null
+  updated_at: string | null
+  machine_id: string
 }
 
 // Form validation types
@@ -142,7 +136,7 @@ export default function MaintenancePage() {
   const router = useRouter()
   const [userSession, setUserSession] = useState<UserSession | null>(null)
   
-  // Firestore-backed issues
+  // Supabase-backed issues
   const [issues, setIssues] = useState<Issue[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
@@ -153,6 +147,9 @@ export default function MaintenancePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+  const [successMessage, setSuccessMessage] = useState("")
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
 
   // New issue form state
   const [newIssue, setNewIssue] = useState({
@@ -177,36 +174,92 @@ export default function MaintenancePage() {
     }
   }, [router])
 
-  // Subscribe to Firestore maintenanceIssues (realtime)
+  // Subscribe to Supabase maintenance_issues (realtime)
   useEffect(() => {
     if (!userSession) return // wait for session to load
 
-    const q = query(collection(db, "maintenanceIssues"), orderBy("createdAt", "desc"))
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(docSnap => {
-        const d = docSnap.data() as any
-        return {
-          id: docSnap.id,
-          lab: d.lab ?? "",
-          title: d.title ?? "",
-          description: d.description ?? "",
-          category: d.category ?? "",
-          severity: d.severity ?? "medium",
-          status: d.status ?? "reported",
-          reportedBy: d.reportedBy ?? d.reporter ?? "Unknown User",
-          reportedAt: d.createdAt ?? d.reportedAt ?? null,
-          assignedTo: d.assignedTo ?? null,
-          updatedAt: d.updatedAt ?? null,
-          machineId: d.machineId ?? "",
-          createdAt: d.createdAt ?? null,
-        } as Issue
-      })
-      setIssues(docs)
-    }, (err) => {
-      console.error("Maintenance listener error:", err)
-    })
+    // Fetch initial data
+    const fetchIssues = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('maintenance_issues')
+          .select('*')
+          .order('created_at', { ascending: false })
 
-    return () => unsubscribe()
+        if (error) {
+          console.error("Error fetching issues:", error)
+          return
+        }
+
+        setIssues(data || [])
+      } catch (err) {
+        console.error("Error in fetchIssues:", err)
+      }
+    }
+
+    fetchIssues()
+
+    // Set up realtime subscription
+    const subscription = supabase
+      .channel('maintenance_issues_realtime')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'maintenance_issues' 
+        }, 
+        (payload) => {
+          console.log('INSERT received:', payload)
+          const newIssue = payload.new as Issue
+          setIssues(prev => {
+            // Check if issue already exists to avoid duplicates
+            const exists = prev.some(issue => issue.id === newIssue.id)
+            if (exists) return prev
+            return [newIssue, ...prev]
+          })
+        }
+      )
+      .on('postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'maintenance_issues'
+        },
+        (payload) => {
+          console.log('UPDATE received:', payload)
+          const updatedIssue = payload.new as Issue
+          setIssues(prev => prev.map(issue => 
+            issue.id === updatedIssue.id ? updatedIssue : issue
+          ))
+          
+          // Update selected issue if it's the one being updated
+          if (selectedIssue?.id === updatedIssue.id) {
+            setSelectedIssue(updatedIssue)
+          }
+        }
+      )
+      .on('postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public', 
+          table: 'maintenance_issues'
+        },
+        (payload) => {
+          console.log('DELETE received:', payload)
+          setIssues(prev => prev.filter(issue => issue.id !== payload.old.id))
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to realtime updates')
+        }
+      })
+
+    return () => {
+      console.log('Cleaning up subscription')
+      supabase.removeChannel(subscription)
+    }
   }, [userSession])
 
   // Check if user can update issue status (only BCDR and Admin)
@@ -302,7 +355,7 @@ export default function MaintenancePage() {
       return (
         issue.title.toLowerCase().includes(queryLower) ||
         issue.description.toLowerCase().includes(queryLower) ||
-        issue.machineId.toLowerCase().includes(queryLower)
+        issue.machine_id.toLowerCase().includes(queryLower)
       )
     }
 
@@ -337,7 +390,7 @@ export default function MaintenancePage() {
     }
   }
 
-  // Create a new issue in Firestore
+  // Create a new issue in Supabase
   const handleCreateIssue = async () => {
     if (!validateForm()) return
 
@@ -348,19 +401,29 @@ export default function MaintenancePage() {
 
     setIsSubmitting(true)
     try {
-      await addDoc(collection(db, "maintenanceIssues"), {
-        lab: newIssue.lab,
-        title: newIssue.title.trim(),
-        description: newIssue.description.trim(),
-        category: newIssue.category,
-        severity: newIssue.severity,
-        status: "reported",
-        reportedBy: userSession.name,
-        machineId: newIssue.machineId.trim(),
-        assignedTo: null,
-        createdAt: serverTimestamp(),
-        updatedAt: null,
-      })
+      const { data, error } = await supabase
+        .from('maintenance_issues')
+        .insert({
+          lab: newIssue.lab,
+          title: newIssue.title.trim(),
+          description: newIssue.description.trim(),
+          category: newIssue.category,
+          severity: newIssue.severity,
+          status: "reported",
+          reported_by: userSession.name,
+          machine_id: newIssue.machineId.trim(),
+          resolved_by: null,
+        })
+        .select()
+
+      if (error) {
+        throw error
+      }
+
+      // Show success message
+      setShowSuccessMessage(true)
+      setSuccessMessage("Maintenance issue reported successfully!")
+      setTimeout(() => setShowSuccessMessage(false), 3000)
 
       // close & reset form
       setIsAddDialogOpen(false)
@@ -373,6 +436,12 @@ export default function MaintenancePage() {
         machineId: "",
       })
       setValidationErrors({})
+
+      // If realtime doesn't work, manually add the issue to state
+      if (data && data[0]) {
+        setIssues(prev => [data[0] as Issue, ...prev])
+      }
+
     } catch (err) {
       console.error("Error creating issue:", err)
       setValidationErrors({ general: "Failed to create issue. Please try again." })
@@ -387,22 +456,59 @@ export default function MaintenancePage() {
     setIsViewDialogOpen(true)
   }
 
-  // Update status in Firestore (only for BCDR/Admin)
+  // Update status in Supabase (only for BCDR/Admin)
   const handleUpdateStatus = async (issueId: string, newStatus: string) => {
     if (!canUpdateStatus()) {
       return
     }
 
+    setIsUpdatingStatus(true)
     try {
-      const issueRef = doc(db, "maintenanceIssues", issueId)
-      await updateDoc(issueRef, {
+      const updateData = {
         status: newStatus,
-        assignedTo: newStatus === "in-progress" ? (userSession?.name ?? "Maintenance Team") : null,
-        updatedAt: serverTimestamp()
-      })
-      setIsViewDialogOpen(false)
+        resolved_by: newStatus === "resolved" ? (userSession?.name ?? "Maintenance Team") : null,
+        updated_at: new Date().toISOString()
+      }
+
+      const { data, error } = await supabase
+        .from('maintenance_issues')
+        .update(updateData)
+        .eq('id', issueId)
+        .select()
+
+      if (error) {
+        throw error
+      }
+
+      console.log("Status update successful:", data)
+
+      // Update local state immediately
+      setIssues(prev => prev.map(issue => 
+        issue.id === issueId 
+          ? { ...issue, ...updateData }
+          : issue
+      ))
+
+      // Update selected issue if it's the one being updated
+      if (selectedIssue?.id === issueId) {
+        setSelectedIssue(prev => prev ? { ...prev, ...updateData } : null)
+      }
+
+      // Show success message
+      setShowSuccessMessage(true)
+      setSuccessMessage(`Issue status updated to "${statusOptions.find(s => s.id === newStatus)?.name}"!`)
+      setTimeout(() => setShowSuccessMessage(false), 3000)
+
+      // Close dialog after a short delay to show the update
+      setTimeout(() => {
+        setIsViewDialogOpen(false)
+      }, 2000)
+
     } catch (err) {
       console.error("Error updating status:", err)
+      setValidationErrors({ general: "Failed to update issue status. Please try again." })
+    } finally {
+      setIsUpdatingStatus(false)
     }
   }
 
@@ -418,19 +524,10 @@ export default function MaintenancePage() {
     return severityLevel ? severityLevel.color : "bg-gray-100 text-gray-800"
   }
 
-  // Format date for display (handles Firestore Timestamp and strings)
-  const formatDate = (dateValue: any) => {
+  // Format date for display (handles ISO strings from Supabase)
+  const formatDate = (dateValue: string | null) => {
     if (!dateValue) return "N/A"
     try {
-      // Firestore Timestamp object has toDate()
-      if (typeof dateValue?.toDate === "function") {
-        return dateValue.toDate().toLocaleString()
-      }
-      // ISO string
-      if (typeof dateValue === "string") {
-        return new Date(dateValue).toLocaleString()
-      }
-      // fallback
       return new Date(dateValue).toLocaleString()
     } catch {
       return "N/A"
@@ -650,6 +747,18 @@ export default function MaintenancePage() {
         </div>
       </header>
 
+      {/* Success Message Toast */}
+      {showSuccessMessage && (
+        <div className="fixed top-20 right-4 z-50 animate-in slide-in-from-right">
+          <Alert className="bg-green-50 border-green-200 text-green-800 shadow-lg">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="font-medium">
+              {successMessage}
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       <main className="flex-1 container mx-auto p-4">
         <Card className="mb-4">
           <CardHeader className="pb-2">
@@ -770,14 +879,19 @@ export default function MaintenancePage() {
                               </Badge>
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              Reported by {issue.reportedBy} on {formatDate(issue.reportedAt)}
+                              Reported by {issue.reported_by} on {formatDate(issue.created_at)}
                             </p>
+                            {issue.status === "resolved" && issue.resolved_by && (
+                              <p className="text-sm text-green-600">
+                                Resolved by {issue.resolved_by}
+                              </p>
+                            )}
                             <p className="text-sm mt-1 line-clamp-2">{issue.description}</p>
                             <div className="flex flex-wrap gap-2 mt-2">
                               <Badge variant="outline">
                                 {issueCategories.find((category) => category.id === issue.category)?.name}
                               </Badge>
-                              {issue.machineId && <Badge variant="outline">Machine: {issue.machineId}</Badge>}
+                              {issue.machine_id && <Badge variant="outline">Machine: {issue.machine_id}</Badge>}
                             </div>
                           </div>
                         </div>
@@ -833,14 +947,14 @@ export default function MaintenancePage() {
                               </Badge>
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              Reported by {issue.reportedBy} on {formatDate(issue.reportedAt)}
+                              Reported by {issue.reported_by} on {formatDate(issue.created_at)}
                             </p>
                             <p className="text-sm mt-1 line-clamp-2">{issue.description}</p>
                             <div className="flex flex-wrap gap-2 mt-2">
                               <Badge variant="outline">
                                 {issueCategories.find((category) => category.id === issue.category)?.name}
                               </Badge>
-                              {issue.machineId && <Badge variant="outline">Machine: {issue.machineId}</Badge>}
+                              {issue.machine_id && <Badge variant="outline">Machine: {issue.machine_id}</Badge>}
                             </div>
                           </div>
                         </div>
@@ -887,14 +1001,19 @@ export default function MaintenancePage() {
                                 </Badge>
                               </div>
                               <p className="text-sm text-muted-foreground">
-                                Reported by {issue.reportedBy} on {formatDate(issue.reportedAt)}
+                                Reported by {issue.reported_by} on {formatDate(issue.created_at)}
                               </p>
+                              {issue.resolved_by && (
+                                <p className="text-sm text-green-600">
+                                  Resolved by {issue.resolved_by}
+                                </p>
+                              )}
                               <p className="text-sm mt-1 line-clamp-2">{issue.description}</p>
                               <div className="flex flex-wrap gap-2 mt-2">
                                 <Badge variant="outline">
                                   {issueCategories.find((category) => category.id === issue.category)?.name}
                                 </Badge>
-                                {issue.machineId && <Badge variant="outline">Machine: {issue.machineId}</Badge>}
+                                {issue.machine_id && <Badge variant="outline">Machine: {issue.machine_id}</Badge>}
                               </div>
                             </div>
                           </div>
@@ -933,8 +1052,13 @@ export default function MaintenancePage() {
                 <div>
                   <h3 className="text-lg font-semibold">{selectedIssue.title}</h3>
                   <p className="text-sm text-muted-foreground">
-                    Reported by {selectedIssue.reportedBy} on {formatDate(selectedIssue.reportedAt)}
+                    Reported by {selectedIssue.reported_by} on {formatDate(selectedIssue.created_at)}
                   </p>
+                  {selectedIssue.status === "resolved" && selectedIssue.resolved_by && (
+                    <p className="text-sm text-green-600 mt-1">
+                      Resolved by {selectedIssue.resolved_by}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -951,21 +1075,14 @@ export default function MaintenancePage() {
                   </div>
                   <div>
                     <h4 className="font-medium">Machine Position</h4>
-                    <p className="text-sm">{selectedIssue.machineId || "N/A"}</p>
+                    <p className="text-sm">{selectedIssue.machine_id || "N/A"}</p>
                   </div>
                 </div>
 
-                {selectedIssue.assignedTo && (
-                  <div>
-                    <h4 className="font-medium">Assigned To</h4>
-                    <p className="text-sm">{selectedIssue.assignedTo}</p>
-                  </div>
-                )}
-
-                {selectedIssue.updatedAt && (
+                {selectedIssue.updated_at && (
                   <div>
                     <h4 className="font-medium">Last Updated</h4>
-                    <p className="text-sm">{formatDate(selectedIssue.updatedAt)}</p>
+                    <p className="text-sm">{formatDate(selectedIssue.updated_at)}</p>
                   </div>
                 )}
 
@@ -989,15 +1106,17 @@ export default function MaintenancePage() {
                         variant="outline"
                         onClick={() => handleUpdateStatus(selectedIssue.id, "in-progress")}
                         className="w-full sm:w-auto"
+                        disabled={isUpdatingStatus}
                       >
-                        Mark In Progress
+                        {isUpdatingStatus ? "Updating..." : "Mark In Progress"}
                       </Button>
                     )}
                     <Button
                       onClick={() => handleUpdateStatus(selectedIssue.id, "resolved")}
                       className="w-full sm:w-auto bg-green-600 hover:bg-green-700"
+                      disabled={isUpdatingStatus}
                     >
-                      Mark Resolved
+                      {isUpdatingStatus ? "Resolving..." : "Mark Resolved"}
                     </Button>
                   </>
                 )}
@@ -1008,8 +1127,9 @@ export default function MaintenancePage() {
                     variant="outline"
                     onClick={() => handleUpdateStatus(selectedIssue.id, "reported")}
                     className="w-full sm:w-auto"
+                    disabled={isUpdatingStatus}
                   >
-                    Reopen Issue
+                    {isUpdatingStatus ? "Reopening..." : "Reopen Issue"}
                   </Button>
                 )}
                 

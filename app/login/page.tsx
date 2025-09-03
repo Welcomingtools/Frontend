@@ -9,9 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, Eye, EyeOff, User, Lock, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { signInWithEmailAndPassword } from "firebase/auth"
-import { auth, db } from "@/firebase/clientApp.js"
-import { doc, getDoc } from "firebase/firestore"
+import { supabase } from "@/lib/supabase"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -27,70 +25,46 @@ export default function LoginPage() {
     setError("")
 
     try {
-      // First try to find user in teamMembers collection (for TLA, BCDR, etc.)
-      const memberDocId = email.toLowerCase()
-      const memberRef = doc(db, "teamMembers", memberDocId)
-      const memberDoc = await getDoc(memberRef)
+      // Query the team_members table in Supabase
+      const { data, error: supabaseError } = await supabase
+        .from('team_members')
+        .select('*')
+        .eq('email', email.toLowerCase().trim())
+        .single()
 
-      if (memberDoc.exists()) {
-        // User found in teamMembers collection
-        const memberData = memberDoc.data()
-
-        // Check if member is active
-        if (memberData.status !== "Active") {
-          setError("Account is inactive. Please contact an administrator.")
-          setIsLoading(false)
-          return
-        }
-
-        // Check if password matches
-        if (memberData.password !== password) {
-          setError("Invalid email or password")
-          setIsLoading(false)
-          return
-        }
-
-        // Team member login successful
-        if (typeof window !== 'undefined') {
-          const userSession = {
-            email: memberData.email,
-            name: memberData.name,
-            role: memberData.role,
-            loginTime: new Date().toISOString(),
-            accountType: "team_member"
-          }
-          sessionStorage.setItem('userSession', JSON.stringify(userSession))
-        }
-
-        router.push("/dashboard")
-        return
-      }
-
-      // User not found in teamMembers, try Firebase Auth (for Admin accounts)
-      try {
-        const adminCredential = await signInWithEmailAndPassword(auth, email, password)
-        
-        // Admin login successful
-        if (typeof window !== 'undefined') {
-          const userSession = {
-            email: adminCredential.user.email,
-            name: "Administrator", // You can customize this
-            role: "Admin",
-            loginTime: new Date().toISOString(),
-            accountType: "firebase_admin"
-          }
-          sessionStorage.setItem('userSession', JSON.stringify(userSession))
-        }
-
-        router.push("/dashboard")
-        return
-        
-      } catch (authError) {
-        // Neither teamMember nor Firebase Auth worked
+      if (supabaseError || !data) {
         setError("Invalid email or password")
         setIsLoading(false)
         return
       }
+
+      // Check if member is active
+      if (data.status !== "Active") {
+        setError("Account is inactive. Please contact an administrator.")
+        setIsLoading(false)
+        return
+      }
+
+      // Check if password matches
+      if (data.password !== password) {
+        setError("Invalid email or password")
+        setIsLoading(false)
+        return
+      }
+
+      // Login successful
+      if (typeof window !== 'undefined') {
+        const userSession = {
+          email: data.email,
+          name: data.name,
+          role: data.role,
+          loginTime: new Date().toISOString(),
+          accountType: "team_member"
+        }
+        sessionStorage.setItem('userSession', JSON.stringify(userSession))
+      }
+
+      router.push("/dashboard")
       
     } catch (err: any) {
       console.error("Login error:", err)
