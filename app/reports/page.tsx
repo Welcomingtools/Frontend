@@ -1,23 +1,43 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { 
-  ArrowLeft, 
-  FileText, 
-  Users, 
-  Activity, 
-  AlertTriangle, 
-  Download, 
-  Calendar,
-  Clock,
-  User,
-  LogOut
+import {
+  ArrowLeft,
+  Users,
+  Activity,
+  AlertTriangle,
+  Download,
+  LogOut,
+  ArrowUp,
 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { supabase } from "@/lib/supabase"
+import { format, parseISO, isValid, startOfDay, endOfDay, subMonths } from "date-fns"
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts"
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Types aligned to YOUR schema
+// ────────────────────────────────────────────────────────────────────────────────
 
 type UserSession = {
   email: string
@@ -27,362 +47,894 @@ type UserSession = {
   accountType: string
 }
 
-type SessionActivityReport = {
-  id: string
-  labName: string
-  sessionDate: string
-  startTime: string
-  endTime: string
-  course: string
-  instructor: string
-  studentsCount: number
-  duration: string
-  status: string
+// sessions table
+export type DbSession = {
+  id: number
+  lab: string | null
+  date: string | null // date (YYYY-MM-DD)
+  start_time: string | null // time (HH:MM or HH:MM:SS)
+  end_time: string | null // time (HH:MM or HH:MM:SS)
+  purpose: string | null
+  status: string | null
+  created_by: string | null
+  created_by_email: string | null
+  created_at: string | null
+  description: string | null
 }
 
-type StaffActivityReport = {
+// maintenance_issues table → Incident Report
+export type DbIncident = {
   id: string
-  staffName: string
-  role: string
-  loginTime: string
-  logoutTime: string
-  actionsPerformed: number
-  labsAccessed: string[]
-  totalDuration: string
-  lastActivity: string
+  category: string | null
+  created_at: string | null
+  description: string | null
+  lab: string | null
+  machine_id: string | null
+  reported_by: string | null
+  severity: string | null
+  status: string | null
+  title: string | null
+  updated_at: string | null
+  resolved_by: string | null
 }
 
-type IncidentReport = {
+// user_reports table → Staff Behaviour
+export type DbBehaviour = {
   id: string
-  reportDate: string
-  reportedBy: string
-  incidentType: string
-  labAffected: string
-  severity: string
-  description: string
-  status: string
-  resolvedBy?: string
-  resolutionDate?: string
+  reported_user_id: string | null
+  reported_user_name: string | null
+  reported_user_email: string | null
+  reported_user_role: string | null
+  reporter_email: string | null
+  reporter_name: string | null
+  reporter_role: string | null
+  reason: string | null
+  details: string | null
+  status: string | null
+  created_at: string | null
+  updated_at: string | null
 }
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────────────────
+
+const PALETTE = [
+  "#2563eb", // blue-600
+  "#16a34a", // green-600
+  "#f59e0b", // amber-500
+  "#dc2626", // red-600
+  "#7c3aed", // violet-600
+  "#0ea5e9", // sky-500
+  "#d946ef", // fuchsia-500
+  "#22c55e", // green-500
+]
+
+function toMinutes(hhmm?: string | null) {
+  if (!hhmm) return null
+  const parts = hhmm.split(":").map(Number)
+  const h = parts[0]
+  const m = parts[1] ?? 0
+  if (Number.isNaN(h) || Number.isNaN(m)) return null
+  return h * 60 + m
+}
+
+function durationLabel(start?: string | null, end?: string | null) {
+  const s = toMinutes(start)
+  const e = toMinutes(end)
+  if (s == null || e == null || e < s) return "—"
+  const mins = e - s
+  const hrs = Math.floor(mins / 60)
+  const rem = mins % 60
+  return `${hrs}h ${rem}m`
+}
+
+function safeDate(s?: string | null) {
+  if (!s) return null
+  const d = parseISO(s)
+  return isValid(d) ? d : null
+}
+
+function fmtDate(s?: string | null, f = "yyyy-MM-dd") {
+  const d = safeDate(s)
+  return d ? format(d, f) : "—"
+}
+
+function isResolved(status?: string | null) {
+  return (status || "").toLowerCase() === "resolved"
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Component
+// ────────────────────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
   const router = useRouter()
+
+  // session state
   const [userSession, setUserSession] = useState<UserSession | null>(null)
-  const [sessionReports, setSessionReports] = useState([])
-  const [staffReports, setStaffReports] = useState([])
-  const [incidentReports, setIncidentReports] = useState([])
+
+  // data state
+  const [sessions, setSessions] = useState<DbSession[]>([])
+  const [incidents, setIncidents] = useState<DbIncident[]>([])
+  const [behaviour, setBehaviour] = useState<DbBehaviour[]>([])
+
+  // details toggles
+  const [showSessionDetails, setShowSessionDetails] = useState(false)
+  const [showBehaviourDetails, setShowBehaviourDetails] = useState(false)
+  const [showIncidentDetails, setShowIncidentDetails] = useState(false)
+
+  // ui state
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-    //Mock data for session report
-    const mockSessionData = [
-        {
-            id: "1",
-            labName: "TW Kambule Lab A",
-            sessionDate: "2024-08-28",
-            startTime: "08:00",
-            endTime: "10:00",
-            course: "COMS2001",
-            instructor: "Dr. Smith",
-            studentsCount: 45,
-            duration: "2h 0m",
-            status: "Completed"
-        },
-        {
-            id: "2",
-            labName: "TW Kambule Lab B",
-            sessionDate: "2024-08-28",
-            startTime: "10:30",
-            endTime: "12:30",
-            course: "MATH1024",
-            instructor: "Prof. Johnson",
-            studentsCount: 38,
-            duration: "2h 0m",
-            status: "Completed"
-        }
-    ]
+  // default = past month (inclusive)
+  const [fromDate, setFromDate] = useState<string>(() => format(startOfDay(subMonths(new Date(), 1)), "yyyy-MM-dd"))
+  const [toDate, setToDate] = useState<string>(() => format(endOfDay(new Date()), "yyyy-MM-dd"))
 
-    //Mock data for staff report
-    const mockStaffData = [
-        {
-            id: "1",
-            staffName: "John Doe",
-            role: "TLA",
-            loginTime: "2024-08-28 07:30",
-            logoutTime: "2024-08-28 17:00",
-            actionsPerformed: 24,
-            labsAccessed: ["Lab A", "Lab B"],
-            totalDuration: "9h 30m",
-            lastActivity: "Lab setup completed"
-        }
-    ]
+  const [personFilter, setPersonFilter] = useState<string>("All")
 
-    //Mock data for Incident/log report
-    const mockIncidentData = [
-        {
-            id: "1",
-            reportDate: "2024-08-27",
-            reportedBy: "John Doe",
-            incidentType: "Equipment Failure",
-            labAffected: "TW Kambule Lab A",
-            severity: "High",
-            description: "Projector not working in Lab A",
-            status: "Resolved",
-            resolvedBy: "IT Support",
-            resolutionDate: "2024-08-27"
-        }
-    ]
+  // internal test toggle
+  const ENABLE_DEV_TESTS = true
 
+  // ── auth/session boot ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const sessionData = sessionStorage.getItem('userSession')
-      if (sessionData) {
-        setUserSession(JSON.parse(sessionData))
-      } else {
-        router.push('/login')
-      }
+    const sessionData = typeof window !== "undefined" ? sessionStorage.getItem("userSession") : null
+    if (sessionData) {
+      setUserSession(JSON.parse(sessionData))
+    } else {
+      router.push("/login")
     }
   }, [router])
 
-  const handleLogout = () => {
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('userSession')
+  // ── fetchers ────────────────────────────────────────────────────────────────
+  async function loadData() {
+    setLoading(true)
+    setError(null)
+    try {
+      // Inclusive range per your note
+      const { data: sData, error: sErr } = await supabase
+        .from("sessions")
+        .select(
+          `id, lab, date, start_time, end_time, purpose, status, created_by, created_by_email, created_at, description`
+        )
+        .gte("date", fromDate)
+        .lte("date", toDate)
+        .order("date", { ascending: true })
+        .order("start_time", { ascending: true })
+      if (sErr) throw sErr
+      setSessions(sData || [])
+
+      const fromISO = `${fromDate}T00:00:00Z`
+      const toISO = `${toDate}T23:59:59Z`
+
+      const { data: iData, error: iErr } = await supabase
+        .from("maintenance_issues")
+        .select(
+          `id, category, created_at, description, lab, machine_id, reported_by, severity, status, title, updated_at, resolved_by`
+        )
+        .gte("created_at", fromISO)
+        .lte("created_at", toISO)
+        .order("created_at", { ascending: true })
+      if (iErr) throw iErr
+      setIncidents(iData || [])
+
+      const { data: bData, error: bErr } = await supabase
+        .from("user_reports")
+        .select(
+          `id, reported_user_id, reported_user_name, reported_user_email, reported_user_role, reporter_email, reporter_name, reporter_role, reason, details, status, created_at, updated_at`
+        )
+        .gte("created_at", fromISO)
+        .lte("created_at", toISO)
+        .order("created_at", { ascending: true })
+      if (bErr) throw bErr
+      setBehaviour(bData || [])
+    } catch (e: any) {
+      setError(e?.message || "Failed to load reports")
+    } finally {
+      setLoading(false)
     }
-    router.push('/login')
   }
 
-  const exportReport = (reportType: string) => {
-    console.log(`Exporting ${reportType} report...`)
+  // auto-load on initial mount and whenever the date range changes
+  useEffect(() => {
+    if (userSession) {
+      loadData()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userSession, fromDate, toDate])
+
+  // ── derived analytics ───────────────────────────────────────────────────────
+  const sessionByLab = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const s of sessions) {
+      const lab = s.lab || "Unknown Lab"
+      map.set(lab, (map.get(lab) || 0) + 1)
+    }
+    return Array.from(map, ([lab, count]) => ({ lab, count }))
+  }, [sessions])
+
+  const mostUsedLab = useMemo(() => {
+    if (!sessionByLab.length) return { lab: "—", count: 0 }
+    return sessionByLab.slice().sort((a, b) => b.count - a.count)[0]
+  }, [sessionByLab])
+
+  const sessionByHour = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const s of sessions) {
+      const hh = (s.start_time || "00:00").split(":")[0]
+      counts[hh] = (counts[hh] || 0) + 1
+    }
+    const hours = Array.from({ length: 15 }, (_, i) => String(i + 7).padStart(2, "0"))
+    return hours.map((h) => ({ hour: `${h}:00`, sessions: counts[h] || 0 }))
+  }, [sessions])
+
+  // ADD: peak days of the week
+const sessionByDay = useMemo(() => {
+    const map = new Map<string, number>()
+    sessions.forEach((s) => {
+      const d = safeDate(s.date)
+      if (d) {
+        const day = format(d, "EEEE")
+        map.set(day, (map.get(day) || 0) + 1)
+      }
+    })
+    const order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+    const arr = Array.from(map, ([day, count]) => ({ day, count }))
+    return arr.sort((a,b)=> order.indexOf(a.day) - order.indexOf(b.day))
+  }, [sessions])
+
+
+  const incidentByLab = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const i of incidents) {
+      const lab = i.lab || "Unknown Lab"
+      map.set(lab, (map.get(lab) || 0) + 1)
+    }
+    return Array.from(map, ([lab, count]) => ({ lab, count }))
+  }, [incidents])
+
+  const incidentByMachine = useMemo(() => {
+    const map = new Map<string, number>()
+    incidents.forEach((i) => map.set(i.machine_id || "Unknown Machine", (map.get(i.machine_id || "Unknown Machine") || 0) + 1))
+    return Array.from(map, ([machine, count]) => ({ machine, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+  }, [incidents])
+
+  const incidentByType = useMemo(() => {
+    const map = new Map<string, number>()
+    incidents.forEach((i) => {
+      const t = i.category || i.title || "Unspecified"
+      map.set(t, (map.get(t) || 0) + 1)
+    })
+    return Array.from(map, ([type, count]) => ({ type, count }))
+  }, [incidents])
+
+  const behaviourByUser = useMemo(() => {
+    const made = new Map<string, number>()
+    const received = new Map<string, number>()
+    for (const b of behaviour) {
+      const rName = b.reporter_name || b.reporter_email || "Unknown"
+      const tName = b.reported_user_name || b.reported_user_email || "Unknown"
+      made.set(rName, (made.get(rName) || 0) + 1)
+      received.set(tName, (received.get(tName) || 0) + 1)
+    }
+    const names = new Set<string>([...made.keys(), ...received.keys()])
+    return Array.from(names).map((name) => ({ name, made: made.get(name) || 0, received: received.get(name) || 0 }))
+  }, [behaviour])
+
+  const behaviourReasons = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const b of behaviour) {
+      const reason = (b.reason || "unspecified").toLowerCase()
+      counts.set(reason, (counts.get(reason) || 0) + 1)
+    }
+    return Array.from(counts, ([reason, count]) => ({ reason, count }))
+  }, [behaviour])
+
+  // Who should be shown right now
+  const selectedPerson = useMemo(() => {
+    if (personFilter !== "All") return personFilter
+    // fallback: first name seen in behaviour (reporter or reported)
+    const names = Array.from(
+      new Set(
+        behaviour.flatMap(b =>
+          [
+            b.reporter_name || b.reporter_email,
+            b.reported_user_name || b.reported_user_email,
+          ].filter(Boolean) as string[]
+        )
+      )
+    )
+    return names[0] || "All"
+  }, [personFilter, behaviour])
+
+  // Bar data for the selected person
+  const accountabilityForSelected = useMemo(() => {
+    const made = behaviour.filter(
+      b => (b.reporter_name || b.reporter_email || "Unknown") === selectedPerson
+    ).length
+    const received = behaviour.filter(
+      b => (b.reported_user_name || b.reported_user_email || "Unknown") === selectedPerson
+    ).length
+    return [
+      { metric: "Made", value: made },
+      { metric: "Received", value: received },
+    ]
+  }, [behaviour, selectedPerson])
+
+  const mostCommonReason = useMemo(() => {
+    if (!behaviourReasons.length) return "—"
+    return behaviourReasons.slice().sort((a, b) => b.count - a.count)[0].reason
+  }, [behaviourReasons])
+
+  const meanTimeToResolve = useMemo(() => {
+    const times: number[] = []
+    incidents.forEach((i) => {
+      if (i.created_at && i.updated_at && isResolved(i.status)) {
+        const start = safeDate(i.created_at)
+        const end = safeDate(i.updated_at)
+        if (start && end) times.push(end.getTime() - start.getTime())
+      }
+    })
+    if (!times.length) return "—"
+    const avgMs = times.reduce((a, b) => a + b, 0) / times.length
+    const hrs = Math.floor(avgMs / 3600000)
+    const mins = Math.round((avgMs % 3600000) / 60000)
+    return `${hrs}h ${mins}m`
+  }, [incidents])
+
+  // ADD: unresolved count
+  const unresolvedIncidents = useMemo(
+    () => incidents.filter((i) => !isResolved(i.status)).length,
+    [incidents]
+  )
+
+  // ── export helpers ──────────────────────────────────────────────────────────
+  function rowsToCSV(rows: Record<string, any>[]) {
+    if (!rows?.length) return ""
+
+    const headerSet = rows.reduce<Set<string>>((set, r) => {
+      Object.keys(r).forEach((k) => set.add(k))
+      return set
+    }, new Set<string>())
+
+    const headers = Array.from(headerSet)
+
+    const csv = [headers.join(",")]
+      .concat(
+        rows.map((r) =>
+          headers
+            .map((h) => {
+              const v = r[h]
+              if (v == null) return ""
+              const s = String(v).replaceAll('"', '""')
+              const needs = /[",\r\n]/.test(s)
+              return needs ? `"${s}"` : s
+            })
+            .join(",")
+        )
+      )
+      .join("\n")
+    return csv
   }
+
+  function exportCSV(filename: string, rows: Record<string, any>[]) {
+    const csv = rowsToCSV(rows)
+    if (!csv) return
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportSessions = () => exportCSV("session_activity.csv", sessions as any)
+  const exportIncidents = () => exportCSV("incident_report.csv", incidents as any)
+  const exportBehaviour = () => exportCSV("staff_behaviour.csv", behaviour as any)
+
+  // ── dev tests (validate helpers) ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!ENABLE_DEV_TESTS) return
+    try {
+      const rows = [
+        { a: "x", b: "y" },
+        { a: "c,d", b: 'e"f', c: "line\nbreak" },
+      ]
+      const csv = rowsToCSV(rows)
+      console.assert(csv.startsWith("a,b,c\n"), "CSV header order should be a,b,c")
+      console.assert(csv.includes('"c,d"'), "Comma values should be quoted")
+      console.assert(csv.includes('"e""f"'), "Quotes should be doubled and wrapped")
+      console.assert(csv.includes('"line\nbreak"'), "Newlines should be quoted")
+      console.assert(durationLabel("08:00", "10:15") === "2h 15m", "duration label calc")
+    } catch (e) {
+      console.warn("Dev tests failed:", e)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!userSession) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>
   }
 
   return (
-  <div className="flex flex-col min-h-screen">
-    <header className="bg-[#0f4d92] text-white p-4">
-      <div className="container mx-auto flex justify-between items-center">
-        <div className="flex items-center gap-4">
-        <Link href="/dashboard">
-            <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 flex items-center gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-            </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold">MSS Welcoming Tools</h1>
-          <p className="text-sm opacity-80">University of the Witwatersrand</p>
-          <p className="text-xs opacity-60">Welcome, {userSession.name} ({userSession.role})</p>
+    <div className="flex flex-col min-h-screen">
+      <header className="bg-[#0f4d92] text-white p-4">
+        <div className="container mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard">
+              <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 flex items-center gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold">MSS Welcoming Tools</h1>
+              <p className="text-sm opacity-80">University of the Witwatersrand</p>
+              <p className="text-xs opacity-60">Welcome, {userSession.name} ({userSession.role})</p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (typeof window !== "undefined") sessionStorage.removeItem("userSession")
+              router.push("/login")
+            }}
+            className="text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </Button>
         </div>
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          onClick={handleLogout}
-          className="text-white hover:bg-white/10 flex items-center gap-2"
-        >
-          <LogOut className="h-4 w-4" />
-          Logout
-        </Button>
-       </div> 
-      </div>
-    </header>
+      </header>
 
-    <main className="flex-1 container mx-auto p-4">
-      <div className="space-y-6 py-6">
-        <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">Reports</h2>
-        </div>
+      <main className="flex-1 container mx-auto p-4">
+        <div className="space-y-6 py-6">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight">Reports</h2>
+              <p className="text-muted-foreground">Select a date range to analyze sessions, staff behaviour, and incidents.</p>
+            </div>
+            <div className="flex items-end gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                <div>
+                  <Label htmlFor="from">From</Label>
+                  <Input id="from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                </div>
+                <div>
+                  <Label htmlFor="to">To</Label>
+                  <Input id="to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                </div>
+              </div>
+              <Button onClick={loadData} disabled={loading} className="bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                {loading ? "Loading…" : "Refresh"}
+              </Button>
+            </div>
+          </div>
 
-        <Tabs defaultValue="session" className="space-y-4">
+          {error && (
+            <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              {error}
+            </div>
+          )}
+
+          <Tabs defaultValue="session" className="space-y-4">
             <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="session" className="flex items-center gap-2">
+              <TabsTrigger value="session" className="flex items-center gap-2">
                 <Activity className="h-4 w-4" />
                 Session Activity
-                </TabsTrigger>
-                <TabsTrigger value="staff" className="flex items-center gap-2">
+              </TabsTrigger>
+              <TabsTrigger value="staff" className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
-                Staff Activity
-                </TabsTrigger>
-                <TabsTrigger value="incidents" className="flex items-center gap-2">
+                Staff Behaviour
+              </TabsTrigger>
+              <TabsTrigger value="incidents" className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4" />
-                Incident Log
-                </TabsTrigger>
+                Incident Report
+              </TabsTrigger>
             </TabsList>
-            
-            {/* session activity content goes here */}
+
+            {/* Session Activity */}
             <TabsContent value="session" className="space-y-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle className="flex items-center gap-2">
-                        <Activity className="h-5 w-5" />
-                        Session Activity Report
-                        </CardTitle>
-                        <CardDescription>
-                        Track lab session usage, attendance, and completion status
-                        </CardDescription>
-                    </div>
-                    <Button
-                        onClick={() => exportReport('session')}
-                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
-                    >
-                        <Download className="h-4 w-4" />
-                        Export
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Session Activity Report
+                    </CardTitle>
+                    <CardDescription>
+                      View session counts by hour and by lab; toggle the detailed list to see each session with purpose/creator.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setShowSessionDetails((v) => !v)}>
+                      {showSessionDetails ? "Hide details" : "Show details"}
                     </Button>
-                    </CardHeader>
-                    <CardContent>
-                    <div className="space-y-4">
-                        {mockSessionData.map((session) => (
-                        <div key={session.id} className="border rounded-lg p-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <Button onClick={exportSessions} className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Export CSV
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* KPI strip */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <KPI label="Total Sessions" value={sessions.length} />
+                    <KPI label="Most Used Lab" value={`${mostUsedLab.lab}`} />
+                    <KPI label="Completed" value={sessions.filter(s => (s.status || "").toLowerCase() === "completed").length} />
+                    <KPI label="Creators" value={new Set(sessions.map(s => s.created_by || s.created_by_email || "—").filter(Boolean)).size} />
+                  </div>
+
+
+                  {/* Chart: Sessions by Hour (peaks) */}
+                  <ChartBlock title="Sessions by Hour (peaks)">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={sessionByHour} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="hour" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="sessions" stroke={PALETTE[0]} strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+                  {/* Chart: Sessions by Lab */}
+                  <ChartBlock title="Sessions by Lab">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={sessionByLab} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="lab" interval={0} angle={-20} textAnchor="end" height={80} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill={PALETTE[1]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+                  {/* ADD: Peak days of the week */}
+                  <ChartBlock title="Peak Days of the Week">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={sessionByDay} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="day" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill={PALETTE[2]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+
+                  {/* Detailed List (toggle) */}
+                  {showSessionDetails && (
+                    <div className="space-y-3">
+                      {sessions.map((s) => (
+                        <div key={s.id} className="border rounded-lg p-4">
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                             <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Lab & Course</p>
-                                <p className="font-medium">{session.labName}</p>
-                                <p className="text-sm text-muted-foreground">{session.course}</p>
+                              <p className="font-semibold text-sm text-muted-foreground">Lab & Purpose</p>
+                              <p className="font-medium">{s.lab || "Unknown Lab"}</p>
+                              <p className="text-sm text-muted-foreground">{s.purpose || "—"}</p>
                             </div>
                             <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Date & Time</p>
-                                <p className="font-medium">{session.sessionDate}</p>
-                                <p className="text-sm text-muted-foreground">
-                                {session.startTime} - {session.endTime}
-                                </p>
+                              <p className="font-semibold text-sm text-muted-foreground">Date</p>
+                              <p className="font-medium">{fmtDate(s.date)}</p>
+                              <p className="text-sm text-muted-foreground">By {s.created_by || s.created_by_email || "—"}</p>
                             </div>
                             <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Instructor</p>
-                                <p className="font-medium">{session.instructor}</p>
-                                <p className="text-sm text-muted-foreground">{session.studentsCount} students</p>
+                              <p className="font-semibold text-sm text-muted-foreground">Time</p>
+                              <p className="font-medium">{s.start_time || "—"} – {s.end_time || "—"}</p>
+                              <p className="text-sm text-muted-foreground">{durationLabel(s.start_time, s.end_time)}</p>
                             </div>
                             <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Status</p>
-                                <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
-                                {session.status}
-                                </span>
+                              <p className="font-semibold text-sm text-muted-foreground">Status</p>
+                              <p className="font-medium">{s.status || "—"}</p>
+                              <p className="text-xs text-muted-foreground">{fmtDate(s.created_at)}</p>
                             </div>
+                            <div className="hidden md:block">
+                              <p className="font-semibold text-sm text-muted-foreground">Notes</p>
+                              <p className="text-sm">{s.description || "—"}</p>
                             </div>
+                          </div>
                         </div>
-                        ))}
+                      ))}
                     </div>
-                    </CardContent>
-                </Card>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
-            {/*Staff activity content goes here */}
+            {/* Staff Behaviour */}
             <TabsContent value="staff" className="space-y-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle className="flex items-center gap-2">
-                        <Users className="h-5 w-5" />
-                        Staff Activity Report
-                        </CardTitle>
-                        <CardDescription>
-                        Monitor staff login times, activities, and lab access patterns
-                        </CardDescription>
-                    </div>
-                    <Button
-                        onClick={() => exportReport('staff')}
-                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
-                    >
-                        <Download className="h-4 w-4" />
-                        Export
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Staff Behaviour Report
+                    </CardTitle>
+                    <CardDescription>
+                      Who reported vs who was reported, plus the most common reasons.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setShowBehaviourDetails((v) => !v)}>
+                      {showBehaviourDetails ? "Hide details" : "Show details"}
                     </Button>
-                    </CardHeader>
-                    <CardContent>
-                    <div className="space-y-4">
-                        {mockStaffData.map((staff) => (
-                        <div key={staff.id} className="border rounded-lg p-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Staff Member</p>
-                                <p className="font-medium">{staff.staffName}</p>
-                                <p className="text-sm text-muted-foreground">{staff.role}</p>
-                            </div>
-                            <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Session Info</p>
-                                <p className="font-medium">Login: {staff.loginTime}</p>
-                                <p className="text-sm text-muted-foreground">Logout: {staff.logoutTime}</p>
-                            </div>
-                            <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Activity</p>
-                                <p className="font-medium">{staff.actionsPerformed} actions</p>
-                                <p className="text-sm text-muted-foreground">Labs: {staff.labsAccessed.join(', ')}</p>
-                            </div>
-                            </div>
-                        </div>
+                    <Button onClick={exportBehaviour} className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Export CSV
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <KPI label="Reports Filed" value={behaviour.length} />
+                    <KPI label="# Reported People" value={new Set(behaviour.map(b => b.reported_user_email || b.reported_user_name || "—")).size} />
+                    <KPI label="Unique Reasons" value={new Set(behaviour.map(b => (b.reason || "unspecified").toLowerCase())).size} />
+                    <KPI label="Most Common Reason" value={mostCommonReason} />
+                  </div>
+
+                  {/* Bar: per-user made vs received (colorful) */}
+                  <ChartBlock title="Accountability Balance">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Person</span>
+                      <select
+                        value={selectedPerson}
+                        onChange={(e) => setPersonFilter(e.target.value)}
+                        className="border rounded-md px-2 py-1 text-sm"
+                      >
+                        {Array.from(new Set(
+                          behaviour.flatMap(b =>
+                            [
+                              b.reporter_name || b.reporter_email,
+                              b.reported_user_name || b.reported_user_email,
+                            ].filter(Boolean) as string[]
+                          )
+                        )).map((n) => (
+                          <option key={n} value={n}>{n}</option>
                         ))}
+                      </select>
                     </div>
-                    </CardContent>
-                </Card>
+
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart
+                        data={accountabilityForSelected}
+                        margin={{ left: 10, right: 10, top: 10, bottom: 10 }}
+                        barCategoryGap="40%"   // space between categories
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="metric" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="value" barSize={40}>   {/* ⬅️ thinner bars, adjust as needed */}
+                          {accountabilityForSelected.map((_, i) => (
+                            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                  </ChartBlock>
+
+
+                  {/* Pie: reasons distribution (clean legend, no labels/lines) */}
+                  <ChartBlock title="Most Common Reasons (share)">
+                    <ResponsiveContainer width="100%" height={320}>
+                      <PieChart>
+                        <Pie data={behaviourReasons} dataKey="count" nameKey="reason" innerRadius={60} outerRadius={120} paddingAngle={2} label={false} stroke="none">
+                          {behaviourReasons.map((_, i) => (
+                            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                          ))}
+                        </Pie>
+                        <Legend verticalAlign="bottom" align="center" wrapperStyle={{ marginTop: 12 }} />
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+                  {/* Raw list (toggle) */}
+                  {showBehaviourDetails && (
+                    <div className="space-y-3">
+                      {behaviour.map((b) => (
+                        <div key={b.id} className="border rounded-lg p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">When</p>
+                              <p className="font-medium">{fmtDate(b.created_at)}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Reporter</p>
+                              <p className="font-medium">{b.reporter_name || b.reporter_email || "Unknown"}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Reported Person</p>
+                              <p className="font-medium">{b.reported_user_name || b.reported_user_email || "Unknown"}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Reason</p>
+                              <p className="font-medium capitalize">{b.reason || "unspecified"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
-            {/* Incidents log report content goes here */}
+            {/* Incidents */}
             <TabsContent value="incidents" className="space-y-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5" />
-                        Incident/Issue Log Report
-                        </CardTitle>
-                        <CardDescription>
-                        Track maintenance issues, equipment failures, and incident resolutions
-                        </CardDescription>
-                    </div>
-                    <Button
-                        onClick={() => exportReport('incidents')}
-                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
-                    >
-                        <Download className="h-4 w-4" />
-                        Export
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5" />
+                      Incident Report
+                    </CardTitle>
+                    <CardDescription>
+                      Kiosk/machine issues across labs with recurring failures and resolution tracking.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setShowIncidentDetails((v) => !v)}>
+                      {showIncidentDetails ? "Hide details" : "Show details"}
                     </Button>
-                    </CardHeader>
-                    <CardContent>
-                    <div className="space-y-4">
-                        {mockIncidentData.map((incident) => (
-                        <div key={incident.id} className="border rounded-lg p-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Incident Details</p>
-                                <p className="font-medium">{incident.incidentType}</p>
-                                <p className="text-sm text-muted-foreground">{incident.labAffected}</p>
-                            </div>
-                            <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Status & Severity</p>
-                                <div className="flex items-center gap-2">
-                                <span className="inline-flex px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
-                                    {incident.status}
-                                </span>
-                                <span className="inline-flex px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">
-                                    {incident.severity}
-                                </span>
-                                </div>
-                                <p className="text-sm text-muted-foreground mt-1">By: {incident.reportedBy}</p>
-                            </div>
-                            <div>
-                                <p className="font-semibold text-sm text-muted-foreground">Description</p>
-                                <p className="text-sm">{incident.description}</p>
-                                {incident.resolvedBy && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    Resolved by: {incident.resolvedBy} on {incident.resolutionDate}
-                                </p>
-                                )}
-                            </div>
-                            </div>
-                        </div>
-                        ))}
-                    </div>
-                    </CardContent>
-                </Card>
-            </TabsContent>
-        </Tabs>
-      </div>
-    </main>
+                    <Button onClick={exportIncidents} className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      Export CSV
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <KPI label="Total Incidents" value={incidents.length} />
+                    <KPI label="Labs Affected" value={new Set(incidents.map(i => i.lab || "? ")).size} />
+                    <KPI label="Unresolved" value={unresolvedIncidents} />
+                    <KPI label="Resolved" value={incidents.filter(i => isResolved(i.status)).length} />
+                    <KPI label="Mean Time to Resolve" value={meanTimeToResolve} />
+                  </div>
 
-    <footer className="border-t py-4 bg-muted">
-      <div className="container mx-auto text-center text-sm text-muted-foreground">
-        &copy; {new Date().getFullYear()} Mathematical Sciences Support, University of the Witwatersrand
-      </div>
-    </footer>
-  </div>
-    )
+                  {/* Bar: incidents by lab */}
+                  <ChartBlock title="Incidents per Lab">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={incidentByLab} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="lab" interval={0} angle={-20} textAnchor="end" height={80} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill={PALETTE[4]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+                  {/* ADD: Top Machines by Repeat Failures */}
+                  <ChartBlock title="Top Machines with Repeat Failures (Top 10)">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={incidentByMachine} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="machine" interval={0} angle={-20} textAnchor="end" height={80} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill={PALETTE[6]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+                  {/* ADD: Recurring Issue Types */}
+                  <ChartBlock title="Recurring Issue Types">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={incidentByType} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="type" interval={0} angle={-15} textAnchor="end" height={60} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill={PALETTE[5]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartBlock>
+
+                  {/* List (toggle) */}
+                  {showIncidentDetails && (
+                    <div className="space-y-3">
+                      {incidents.map((i) => (
+                        <div key={i.id} className="border rounded-lg p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Timeline</p>
+                              <p className="font-medium">{fmtDate(i.created_at)} → {i.updated_at ? fmtDate(i.updated_at) : "—"}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Machine / Lab</p>
+                              <p className="font-medium">{i.machine_id || "Unknown"}</p>
+                              <p className="text-sm text-muted-foreground">{i.lab || "Unknown Lab"}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Issue & Status</p>
+                              <p className="font-medium">{i.title || i.category || "—"}</p>
+                              <p className="text-sm text-muted-foreground capitalize">{i.status || "—"} {i.severity ? `• ${i.severity}` : ""}</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-muted-foreground">Notes</p>
+                              <p className="text-sm">{i.description || "—"}</p>
+                              <p className="text-xs text-muted-foreground mt-1">{i.resolved_by ? `Resolved by ${i.resolved_by}` : (i.reported_by ? `Reported by ${i.reported_by}` : " ")}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </main>
+
+      <footer className="border-t py-4 bg-muted">
+        <div className="container mx-auto text-center text-sm text-muted-foreground">
+          &copy; {new Date().getFullYear()} Mathematical Sciences Support, University of the Witwatersrand
+        </div>
+      </footer>
+
+      <ScrollToTopButton />
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Small UI helpers
+// ────────────────────────────────────────────────────────────────────────────────
+
+function KPI({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border p-4">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="text-2xl font-semibold">{value}</div>
+    </div>
+  )
+}
+
+function ChartBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border p-4">
+      <div className="font-semibold mb-2">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function ScrollToTopButton() {
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsVisible(window.scrollY > 300)
+    }
+    window.addEventListener("scroll", handleScroll)
+    return () => window.removeEventListener("scroll", handleScroll)
+  }, [])
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  if (!isVisible) return null
+
+  return (
+    <button
+      onClick={scrollToTop}
+      className="fixed bottom-6 right-6 p-3 rounded-full bg-[#0f4d92] text-white shadow-lg hover:bg-[#0a3d7a] transition-colors"
+      aria-label="Scroll to top"
+    >
+      <ArrowUp className="h-5 w-5" />
+    </button>
+  )
 }
