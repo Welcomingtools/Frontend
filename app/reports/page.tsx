@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode, useRef} from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -34,10 +34,8 @@ import {
   Cell,
   Legend,
 } from "recharts"
-
-// ────────────────────────────────────────────────────────────────────────────────
-// Types aligned to YOUR schema
-// ────────────────────────────────────────────────────────────────────────────────
+import jsPDF from "jspdf"
+import html2canvas from "html2canvas"
 
 type UserSession = {
   email: string
@@ -173,6 +171,11 @@ export default function ReportsPage() {
   const [toDate, setToDate] = useState<string>(() => format(endOfDay(new Date()), "yyyy-MM-dd"))
 
   const [personFilter, setPersonFilter] = useState<string>("All")
+
+  const sessionPDFRef = useRef<HTMLDivElement>(null)
+  const behaviourPDFRef = useRef<HTMLDivElement>(null)
+  const incidentsPDFRef = useRef<HTMLDivElement>(null)
+
 
   // internal test toggle
   const ENABLE_DEV_TESTS = true
@@ -431,6 +434,73 @@ const sessionByDay = useMemo(() => {
     URL.revokeObjectURL(url)
   }
 
+  // PDF EXPORT HELPER (inside ReportsPage, below your CSV helpers or anywhere above return)
+  async function exportSectionToPDF(ref: { current: HTMLDivElement | null },
+  filename: string ) {
+    const el = ref.current
+    if (!el) return
+
+    // ensure white background so charts look correct
+    const prevBg = el.style.backgroundColor
+    el.style.backgroundColor = "#ffffff"
+
+    const canvas = await html2canvas(el, {
+      scale: 2,                 // sharp text/charts
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+      windowWidth: document.documentElement.clientWidth, // helps with responsive layouts
+    })
+
+    el.style.backgroundColor = prevBg
+
+    const imgData = canvas.toDataURL("image/png")
+    const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" })
+
+    const pageW = pdf.internal.pageSize.getWidth()
+    const pageH = pdf.internal.pageSize.getHeight()
+    const margin = 10
+    const usableW = pageW - margin * 2
+    const imgW = usableW
+    const imgH = (canvas.height * imgW) / canvas.width
+
+    let y = margin
+    let remaining = imgH
+    let srcY = 0
+    const pxPerMm = canvas.height / imgH // convert mm to px for slicing
+
+    // add first page
+    pdf.addImage(imgData, "PNG", margin, y, imgW, Math.min(imgH, pageH - margin * 2), undefined, "FAST")
+
+    // if content is taller than one page, slice and add more
+    while (y + remaining > pageH - margin) {
+      pdf.addPage()
+      y = margin
+
+      // compute slice rectangle in px to simulate page breaks
+      srcY += (pageH - margin * 2) * pxPerMm
+      const sliceCanvas = document.createElement("canvas")
+      const sliceHpx = Math.min(canvas.height - srcY, (pageH - margin * 2) * pxPerMm)
+      sliceCanvas.width = canvas.width
+      sliceCanvas.height = Math.max(1, Math.floor(sliceHpx))
+
+      const ctx = sliceCanvas.getContext("2d")
+      if (!ctx) break
+      ctx.drawImage(
+        canvas,
+        0, srcY, canvas.width, sliceCanvas.height, // src rect
+        0, 0, sliceCanvas.width, sliceCanvas.height // dest rect
+      )
+      const sliceData = sliceCanvas.toDataURL("image/png")
+      const sliceH = (sliceCanvas.height * imgW) / sliceCanvas.width
+      pdf.addImage(sliceData, "PNG", margin, y, imgW, sliceH, undefined, "FAST")
+
+      remaining -= (pageH - margin * 2)
+    }
+
+    pdf.save(filename)
+  }
+
   const exportSessions = () => exportCSV("session_activity.csv", sessions as any)
   const exportIncidents = () => exportCSV("incident_report.csv", incidents as any)
   const exportBehaviour = () => exportCSV("staff_behaviour.csv", behaviour as any)
@@ -539,336 +609,352 @@ const sessionByDay = useMemo(() => {
 
             {/* Session Activity */}
             <TabsContent value="session" className="space-y-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Activity className="h-5 w-5" />
-                      Session Activity Report
-                    </CardTitle>
-                    <CardDescription>
-                      View session counts by hour and by lab; toggle the detailed list to see each session with purpose/creator.
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setShowSessionDetails((v) => !v)}>
-                      {showSessionDetails ? "Hide details" : "Show details"}
-                    </Button>
-                    <Button onClick={exportSessions} className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2">
+              <div ref={sessionPDFRef}>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Activity className="h-5 w-5" />
+                        Session Activity Report
+                      </CardTitle>
+                      <CardDescription>
+                        View session counts by hour and by lab; toggle the detailed list to see each session with purpose/creator.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={() => setShowSessionDetails((v) => !v)}>
+                        {showSessionDetails ? "Hide details" : "Show details"}
+                      </Button>
+                      <Button
+                      onClick={() => exportSectionToPDF(sessionPDFRef, "session-activity.pdf")}
+                      className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
+                    >
                       <Download className="h-4 w-4" />
-                      Export CSV
+                      Export PDF
                     </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* KPI strip */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <KPI label="Total Sessions" value={sessions.length} />
-                    <KPI label="Most Used Lab" value={`${mostUsedLab.lab}`} />
-                    <KPI label="Completed" value={sessions.filter(s => (s.status || "").toLowerCase() === "completed").length} />
-                    <KPI label="Creators" value={new Set(sessions.map(s => s.created_by || s.created_by_email || "—").filter(Boolean)).size} />
-                  </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/* KPI strip */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <KPI label="Total Sessions" value={sessions.length} />
+                      <KPI label="Most Used Lab" value={`${mostUsedLab.lab}`} />
+                      <KPI label="Completed" value={sessions.filter(s => (s.status || "").toLowerCase() === "completed").length} />
+                      <KPI label="Creators" value={new Set(sessions.map(s => s.created_by || s.created_by_email || "—").filter(Boolean)).size} />
+                    </div>
 
-                  {/* Chart: Sessions by Hour (peaks) */}
-                  <ChartBlock title="Sessions by Hour (peaks)">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={sessionByHour} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="hour" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="sessions" stroke={PALETTE[0]} strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    {/* Chart: Sessions by Hour (peaks) */}
+                    <ChartBlock title="Sessions by Hour (peaks)">
+                      <ResponsiveContainer width="100%" height={280}>
+                        <LineChart data={sessionByHour} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="hour" />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="sessions" stroke={PALETTE[0]} strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
 
-                  {/* Chart: Sessions by Lab */}
-                  <ChartBlock title="Sessions by Lab">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={sessionByLab} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="lab" interval={0} angle={-20} textAnchor="end" height={80} />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill={PALETTE[1]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    {/* Chart: Sessions by Lab */}
+                    <ChartBlock title="Sessions by Lab">
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={sessionByLab} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="lab" interval={0} angle={-20} textAnchor="end" height={80} />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill={PALETTE[1]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
 
-                  {/* ADD: Peak days of the week */}
-                  <ChartBlock title="Peak Days of the Week">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={sessionByDay} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="day" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill={PALETTE[2]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    {/* ADD: Peak days of the week */}
+                    <ChartBlock title="Peak Days of the Week">
+                      <ResponsiveContainer width="100%" height={280}>
+                        <BarChart data={sessionByDay} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="day" />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill={PALETTE[2]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
 
-                  {/* Detailed List (toggle) */}
-                  {showSessionDetails && (
-                    <div className="space-y-3">
-                      {sessions.map((s) => (
-                        <div key={s.id} className="border rounded-lg p-4">
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Lab & Purpose</p>
-                              <p className="font-medium">{s.lab || "Unknown Lab"}</p>
-                              <p className="text-sm text-muted-foreground">{s.purpose || "—"}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Date</p>
-                              <p className="font-medium">{fmtDate(s.date)}</p>
-                              <p className="text-sm text-muted-foreground">By {s.created_by || s.created_by_email || "—"}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Time</p>
-                              <p className="font-medium">{s.start_time || "—"} – {s.end_time || "—"}</p>
-                              <p className="text-sm text-muted-foreground">{durationLabel(s.start_time, s.end_time)}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Status</p>
-                              <p className="font-medium">{s.status || "—"}</p>
-                              <p className="text-xs text-muted-foreground">{fmtDate(s.created_at)}</p>
-                            </div>
-                            <div className="hidden md:block">
-                              <p className="font-semibold text-sm text-muted-foreground">Notes</p>
-                              <p className="text-sm">{s.description || "—"}</p>
+                    {/* Detailed List (toggle) */}
+                    {showSessionDetails && (
+                      <div className="space-y-3">
+                        {sessions.map((s) => (
+                          <div key={s.id} className="border rounded-lg p-4">
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Lab & Purpose</p>
+                                <p className="font-medium">{s.lab || "Unknown Lab"}</p>
+                                <p className="text-sm text-muted-foreground">{s.purpose || "—"}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Date</p>
+                                <p className="font-medium">{fmtDate(s.date)}</p>
+                                <p className="text-sm text-muted-foreground">By {s.created_by || s.created_by_email || "—"}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Time</p>
+                                <p className="font-medium">{s.start_time || "—"} – {s.end_time || "—"}</p>
+                                <p className="text-sm text-muted-foreground">{durationLabel(s.start_time, s.end_time)}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Status</p>
+                                <p className="font-medium">{s.status || "—"}</p>
+                                <p className="text-xs text-muted-foreground">{fmtDate(s.created_at)}</p>
+                              </div>
+                              <div className="hidden md:block">
+                                <p className="font-semibold text-sm text-muted-foreground">Notes</p>
+                                <p className="text-sm">{s.description || "—"}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             {/* Staff Behaviour */}
             <TabsContent value="staff" className="space-y-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="h-5 w-5" />
-                      Staff Behaviour Report
-                    </CardTitle>
-                    <CardDescription>
-                      Who reported vs who was reported, plus the most common reasons.
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setShowBehaviourDetails((v) => !v)}>
-                      {showBehaviourDetails ? "Hide details" : "Show details"}
-                    </Button>
-                    <Button onClick={exportBehaviour} className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2">
-                      <Download className="h-4 w-4" />
-                      Export CSV
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <KPI label="Reports Filed" value={behaviour.length} />
-                    <KPI label="# Reported People" value={new Set(behaviour.map(b => b.reported_user_email || b.reported_user_name || "—")).size} />
-                    <KPI label="Unique Reasons" value={new Set(behaviour.map(b => (b.reason || "unspecified").toLowerCase())).size} />
-                    <KPI label="Most Common Reason" value={mostCommonReason} />
-                  </div>
-
-                  {/* Bar: per-user made vs received (colorful) */}
-                  <ChartBlock title="Accountability Balance">
-                    <div className="mb-3 flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Person</span>
-                      <select
-                        value={selectedPerson}
-                        onChange={(e) => setPersonFilter(e.target.value)}
-                        className="border rounded-md px-2 py-1 text-sm"
+              <div ref={behaviourPDFRef}>  
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Users className="h-5 w-5" />
+                        Staff Behaviour Report
+                      </CardTitle>
+                      <CardDescription>
+                        Who reported vs who was reported, plus the most common reasons.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={() => setShowIncidentDetails((v) => !v)}>
+                        {showIncidentDetails ? "Hide details" : "Show details"}
+                      </Button>
+                    
+                      <Button
+                        onClick={() => exportSectionToPDF(behaviourPDFRef, "staff-behaviour.pdf")}
+                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
                       >
-                        {Array.from(new Set(
-                          behaviour.flatMap(b =>
-                            [
-                              b.reporter_name || b.reporter_email,
-                              b.reported_user_name || b.reported_user_email,
-                            ].filter(Boolean) as string[]
-                          )
-                        )).map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
+                        <Download className="h-4 w-4" />
+                        Export PDF
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <KPI label="Reports Filed" value={behaviour.length} />
+                      <KPI label="# Reported People" value={new Set(behaviour.map(b => b.reported_user_email || b.reported_user_name || "—")).size} />
+                      <KPI label="Unique Reasons" value={new Set(behaviour.map(b => (b.reason || "unspecified").toLowerCase())).size} />
+                      <KPI label="Most Common Reason" value={mostCommonReason} />
                     </div>
 
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart
-                        data={accountabilityForSelected}
-                        margin={{ left: 10, right: 10, top: 10, bottom: 10 }}
-                        barCategoryGap="40%"   // space between categories
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="metric" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="value" barSize={40}>   {/* ⬅️ thinner bars, adjust as needed */}
-                          {accountabilityForSelected.map((_, i) => (
-                            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                    {/* Bar: per-user made vs received (colorful) */}
+                    <ChartBlock title="Accountability Balance">
+                      <div className="mb-3 flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Person</span>
+                        <select
+                          value={selectedPerson}
+                          onChange={(e) => setPersonFilter(e.target.value)}
+                          className="border rounded-md px-2 py-1 text-sm"
+                        >
+                          {Array.from(new Set(
+                            behaviour.flatMap(b =>
+                              [
+                                b.reporter_name || b.reporter_email,
+                                b.reported_user_name || b.reported_user_email,
+                              ].filter(Boolean) as string[]
+                            )
+                          )).map((n) => (
+                            <option key={n} value={n}>{n}</option>
                           ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                        </select>
+                      </div>
 
-                  </ChartBlock>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <BarChart
+                          data={accountabilityForSelected}
+                          margin={{ left: 10, right: 10, top: 10, bottom: 10 }}
+                          barCategoryGap="40%"   // space between categories
+                        >
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="metric" />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="value" barSize={40}>   {/* ⬅️ thinner bars, adjust as needed */}
+                            {accountabilityForSelected.map((_, i) => (
+                              <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
 
-                  {/* Pie: reasons distribution (clean legend, no labels/lines) */}
-                  <ChartBlock title="Most Common Reasons (share)">
-                    <ResponsiveContainer width="100%" height={320}>
-                      <PieChart>
-                        <Pie data={behaviourReasons} dataKey="count" nameKey="reason" innerRadius={60} outerRadius={120} paddingAngle={2} label={false} stroke="none">
-                          {behaviourReasons.map((_, i) => (
-                            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                          ))}
-                        </Pie>
-                        <Legend verticalAlign="bottom" align="center" wrapperStyle={{ marginTop: 12 }} />
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    </ChartBlock>
 
-                  {/* Raw list (toggle) */}
-                  {showBehaviourDetails && (
-                    <div className="space-y-3">
-                      {behaviour.map((b) => (
-                        <div key={b.id} className="border rounded-lg p-4">
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">When</p>
-                              <p className="font-medium">{fmtDate(b.created_at)}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Reporter</p>
-                              <p className="font-medium">{b.reporter_name || b.reporter_email || "Unknown"}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Reported Person</p>
-                              <p className="font-medium">{b.reported_user_name || b.reported_user_email || "Unknown"}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Reason</p>
-                              <p className="font-medium capitalize">{b.reason || "unspecified"}</p>
+                    {/* Pie: reasons distribution (clean legend, no labels/lines) */}
+                    <ChartBlock title="Most Common Reasons (share)">
+                      <ResponsiveContainer width="100%" height={320}>
+                        <PieChart>
+                          <Pie data={behaviourReasons} dataKey="count" nameKey="reason" innerRadius={60} outerRadius={120} paddingAngle={2} label={false} stroke="none">
+                            {behaviourReasons.map((_, i) => (
+                              <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                            ))}
+                          </Pie>
+                          <Legend verticalAlign="bottom" align="center" wrapperStyle={{ marginTop: 12 }} />
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
+
+                    {/* Raw list (toggle) */}
+                    {showBehaviourDetails && (
+                      <div className="space-y-3">
+                        {behaviour.map((b) => (
+                          <div key={b.id} className="border rounded-lg p-4">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">When</p>
+                                <p className="font-medium">{fmtDate(b.created_at)}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Reporter</p>
+                                <p className="font-medium">{b.reporter_name || b.reporter_email || "Unknown"}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Reported Person</p>
+                                <p className="font-medium">{b.reported_user_name || b.reported_user_email || "Unknown"}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Reason</p>
+                                <p className="font-medium capitalize">{b.reason || "unspecified"}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             {/* Incidents */}
             <TabsContent value="incidents" className="space-y-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5" />
-                      Incident Report
-                    </CardTitle>
-                    <CardDescription>
-                      Kiosk/machine issues across labs with recurring failures and resolution tracking.
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setShowIncidentDetails((v) => !v)}>
-                      {showIncidentDetails ? "Hide details" : "Show details"}
-                    </Button>
-                    <Button onClick={exportIncidents} className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2">
-                      <Download className="h-4 w-4" />
-                      Export CSV
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <KPI label="Total Incidents" value={incidents.length} />
-                    <KPI label="Labs Affected" value={new Set(incidents.map(i => i.lab || "? ")).size} />
-                    <KPI label="Unresolved" value={unresolvedIncidents} />
-                    <KPI label="Resolved" value={incidents.filter(i => isResolved(i.status)).length} />
-                    <KPI label="Mean Time to Resolve" value={meanTimeToResolve} />
-                  </div>
+              <div ref={incidentsPDFRef}>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5" />
+                        Incident Report
+                      </CardTitle>
+                      <CardDescription>
+                        Kiosk/machine issues across labs with recurring failures and resolution tracking.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={() => setShowIncidentDetails((v) => !v)}>
+                        {showIncidentDetails ? "Hide details" : "Show details"}
+                      </Button>
+                      <Button
+                        onClick={() => exportSectionToPDF(incidentsPDFRef, "incident-report.pdf")}
+                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        Export PDF
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <KPI label="Total Incidents" value={incidents.length} />
+                      <KPI label="Labs Affected" value={new Set(incidents.map(i => i.lab || "? ")).size} />
+                      <KPI label="Unresolved" value={unresolvedIncidents} />
+                      <KPI label="Resolved" value={incidents.filter(i => isResolved(i.status)).length} />
+                      <KPI label="Mean Time to Resolve" value={meanTimeToResolve} />
+                    </div>
 
-                  {/* Bar: incidents by lab */}
-                  <ChartBlock title="Incidents per Lab">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={incidentByLab} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="lab" interval={0} angle={-20} textAnchor="end" height={80} />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill={PALETTE[4]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    {/* Bar: incidents by lab */}
+                    <ChartBlock title="Incidents per Lab">
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={incidentByLab} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="lab" interval={0} angle={-20} textAnchor="end" height={80} />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill={PALETTE[4]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
 
-                  {/* ADD: Top Machines by Repeat Failures */}
-                  <ChartBlock title="Top Machines with Repeat Failures (Top 10)">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={incidentByMachine} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="machine" interval={0} angle={-20} textAnchor="end" height={80} />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill={PALETTE[6]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    {/* ADD: Top Machines by Repeat Failures */}
+                    <ChartBlock title="Top Machines with Repeat Failures (Top 10)">
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={incidentByMachine} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="machine" interval={0} angle={-20} textAnchor="end" height={80} />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill={PALETTE[6]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
 
-                  {/* ADD: Recurring Issue Types */}
-                  <ChartBlock title="Recurring Issue Types">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={incidentByType} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="type" interval={0} angle={-15} textAnchor="end" height={60} />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill={PALETTE[5]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartBlock>
+                    {/* ADD: Recurring Issue Types */}
+                    <ChartBlock title="Recurring Issue Types">
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={incidentByType} margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="type" interval={0} angle={-15} textAnchor="end" height={60} />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill={PALETTE[5]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartBlock>
 
-                  {/* List (toggle) */}
-                  {showIncidentDetails && (
-                    <div className="space-y-3">
-                      {incidents.map((i) => (
-                        <div key={i.id} className="border rounded-lg p-4">
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Timeline</p>
-                              <p className="font-medium">{fmtDate(i.created_at)} → {i.updated_at ? fmtDate(i.updated_at) : "—"}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Machine / Lab</p>
-                              <p className="font-medium">{i.machine_id || "Unknown"}</p>
-                              <p className="text-sm text-muted-foreground">{i.lab || "Unknown Lab"}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Issue & Status</p>
-                              <p className="font-medium">{i.title || i.category || "—"}</p>
-                              <p className="text-sm text-muted-foreground capitalize">{i.status || "—"} {i.severity ? `• ${i.severity}` : ""}</p>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm text-muted-foreground">Notes</p>
-                              <p className="text-sm">{i.description || "—"}</p>
-                              <p className="text-xs text-muted-foreground mt-1">{i.resolved_by ? `Resolved by ${i.resolved_by}` : (i.reported_by ? `Reported by ${i.reported_by}` : " ")}</p>
+                    {/* List (toggle) */}
+                    {showIncidentDetails && (
+                      <div className="space-y-3">
+                        {incidents.map((i) => (
+                          <div key={i.id} className="border rounded-lg p-4">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Timeline</p>
+                                <p className="font-medium">{fmtDate(i.created_at)} → {i.updated_at ? fmtDate(i.updated_at) : "—"}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Machine / Lab</p>
+                                <p className="font-medium">{i.machine_id || "Unknown"}</p>
+                                <p className="text-sm text-muted-foreground">{i.lab || "Unknown Lab"}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Issue & Status</p>
+                                <p className="font-medium">{i.title || i.category || "—"}</p>
+                                <p className="text-sm text-muted-foreground capitalize">{i.status || "—"} {i.severity ? `• ${i.severity}` : ""}</p>
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-muted-foreground">Notes</p>
+                                <p className="text-sm">{i.description || "—"}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{i.resolved_by ? `Resolved by ${i.resolved_by}` : (i.reported_by ? `Reported by ${i.reported_by}` : " ")}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
           </Tabs>
         </div>

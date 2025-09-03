@@ -211,30 +211,31 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-          </div>
+          
 
             
-          {/* ROLE-BASED ACCESS: Only show Reports to Admins */}
-          {userSession.role === "Admin" && (
-            <div className="bg-card rounded-lg border shadow-sm p-6">
-              <div className="flex items-center gap-4">
-                <FileText className="h-8 w-8 text-[#0f4d92]" />
-                <div>
-                  <h3 className="font-semibold">Reports</h3>
-                  <p className="text-sm text-muted-foreground">View reports based on current operations, staff activity and maintenance</p>
+            {/* ROLE-BASED ACCESS: Only show Reports to Admins */}
+            {userSession.role === "Admin" && (
+              <div className="bg-card rounded-lg border shadow-sm p-6 h-48">
+                <div className="flex items-center gap-4">
+                  <FileText className="h-8 w-8 text-[#0f4d92]" />
+                  <div>
+                    <h3 className="font-semibold">Reports</h3>
+                    <p className="text-sm text-muted-foreground">View reports based on current operations, staff activity and maintenance</p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Link href="/reports">
+                    <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                      View Reports
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </Link>
                 </div>
               </div>
-              <div className="mt-4">
-                <Link href="/reports">
-                  <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
-                    View Reports
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          )}
-
+            )}
+          </div>
+          
           <div className="rounded-lg border bg-card p-6">
             <h3 className="font-semibold mb-2">About MSS Welcoming Team App</h3>
             <p className="text-sm text-muted-foreground">
