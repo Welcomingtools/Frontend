@@ -81,6 +81,16 @@ export default function LabStatusPage() {
   const sessionId = searchParams.get('session')
   const fromOverview = queryUp !== null && queryDown !== null && queryTotal !== null
   
+  // Determine the correct back URL based on whether there's a session
+  const getBackUrl = () => {
+    if (sessionId) {
+      // If there's a session, go back to the schedule session page
+      return `/schedule?session=${sessionId}`
+    }
+    // Otherwise, go to the lab overview
+    return "/labs"
+  }
+  
   // State for machine status
   const [machinesUp, setMachinesUp] = useState(() => {
     // Use query params if coming from overview (since labs are now always loaded)
@@ -561,7 +571,7 @@ export default function LabStatusPage() {
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/labs">
+              <Link href={getBackUrl()}>
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
@@ -718,38 +728,6 @@ export default function LabStatusPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Monitor className="h-5 w-5 text-muted-foreground" />
-                    <Label>Windows Boot</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.windows || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <RefreshCcw className="h-5 w-5 text-muted-foreground" />
-                    <Label>User Cleanup</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.userCleanup || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Home className="h-5 w-5 text-muted-foreground" />
-                    <Label>Home Directories</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.homes || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe className="h-5 w-5 text-muted-foreground" />
-                    <Label>Internet Access</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.internet || false)}
-                </div>
-
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Download className="h-5 w-5 text-muted-foreground" />

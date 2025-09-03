@@ -59,6 +59,41 @@ interface ValidationErrors {
   general?: string
 }
 
+// Session data interface
+interface SessionData {
+  id: string
+  lab: string
+  date: string
+  startTime: string
+  endTime: string
+  purpose: string
+  description: string
+  status: string
+  configurations: {
+    windows: boolean
+    internet: boolean
+    homes: boolean
+    userCleanup: boolean
+    handoutdata: boolean
+    reboot: boolean
+  }
+  createdBy: string
+  createdByEmail: string
+  // NEW CHECK-IN FIELDS
+  checkedInBy?: string
+  checkedInByEmail?: string
+  checkedInAt?: string
+}
+
+// User session type
+type UserSession = {
+  email: string
+  name: string
+  role: string
+  loginTime: string
+  accountType: string
+}
+
 // Time validation helper functions
 
 const parseTime = (timeString: string | undefined) => {
@@ -149,20 +184,11 @@ const getCheckInStatus = (sessionDate: string, startTime: string, endTime: strin
   }
 }
 
-// User session type
-type UserSession = {
-  email: string
-  name: string
-  role: string
-  loginTime: string
-  accountType: string
-}
-
 export default function SchedulePage() {
   // Constants moved inside component for accessibility
   const ADMIN_REVIEW_THRESHOLD = 240 // 4 hours - sessions longer than this need admin review
   
-  const [sessions, setSessions] = useState<any[]>([])
+  const [sessions, setSessions] = useState<SessionData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
@@ -212,7 +238,12 @@ export default function SchedulePage() {
     try {
       let query = supabase
         .from('sessions')
-        .select('*')
+        .select(`
+          *,
+          checked_in_by,
+          checked_in_by_email,
+          checked_in_at
+        `)
         .order('start_time');
 
       if (selectedView === "day") {
@@ -256,9 +287,14 @@ export default function SchedulePage() {
           homes: session.config_homes,
           userCleanup: session.config_user_cleanup,
           handoutdata: session.config_handoutdata,
+          reboot: session.config_reboot || false, // NEW FIELD
         },
         createdBy: session.created_by,
         createdByEmail: session.created_by_email,
+        // NEW CHECK-IN DATA
+        checkedInBy: session.checked_in_by,
+        checkedInByEmail: session.checked_in_by_email,
+        checkedInAt: session.checked_in_at,
       })) || [];
 
       setSessions(transformedSessions);
@@ -314,6 +350,7 @@ export default function SchedulePage() {
       homes: false,
       userCleanup: false,
       handoutdata: false,
+      reboot: false, // NEW FIELD
     },
   })
 
@@ -526,6 +563,7 @@ export default function SchedulePage() {
         config_homes: newSession.configurations.homes,
         config_user_cleanup: newSession.configurations.userCleanup,
         config_handoutdata: newSession.configurations.handoutdata,
+        config_reboot: newSession.configurations.reboot, // NEW FIELD
       };
 
       // Create sessions for each selected lab
@@ -546,6 +584,7 @@ export default function SchedulePage() {
           homes: sessionData.config_homes,
           userCleanup: sessionData.config_user_cleanup,
           handoutdata: sessionData.config_handoutdata,
+          reboot: sessionData.config_reboot,
         },
         createdBy: sessionData.created_by,
         createdByEmail: sessionData.created_by_email,
@@ -585,6 +624,7 @@ export default function SchedulePage() {
             homes: session.config_homes,
             userCleanup: session.config_user_cleanup,
             handoutdata: session.config_handoutdata,
+            reboot: session.config_reboot,
           },
           createdBy: session.created_by,
           createdByEmail: session.created_by_email,
@@ -623,6 +663,7 @@ export default function SchedulePage() {
           homes: false, 
           userCleanup: false,
           handoutdata: false,
+          reboot: false, // NEW FIELD
         },
       });
       setValidationErrors({});
@@ -670,22 +711,182 @@ export default function SchedulePage() {
     }
   };
 
+  // Check-in function
+  const handleCheckIn = async (sessionId: string) => {
+    if (!userSession) return;
+
+    try {
+      // First, check if session is already checked in
+      const { data: currentSession, error: fetchError } = await supabase
+        .from('sessions')
+        .select('checked_in_by, checked_in_by_email, checked_in_at')
+        .eq('id', sessionId)
+        .single();
+
+      if (fetchError) {
+        showToast("Failed to check session status.", "error");
+        return;
+      }
+
+      // Check if someone else has already checked in
+      if (currentSession.checked_in_by && currentSession.checked_in_by !== userSession.name) {
+        showToast(
+          `Session already checked in by ${currentSession.checked_in_by} at ${new Date(currentSession.checked_in_at).toLocaleTimeString()}`, 
+          "error"
+        );
+        return;
+      }
+
+      // If user has already checked in, show confirmation
+      if (currentSession.checked_in_by === userSession.name) {
+        const confirmReCheckIn = window.confirm(
+          `You have already checked into this session at ${new Date(currentSession.checked_in_at).toLocaleTimeString()}. Do you want to proceed to the lab control page?`
+        );
+        
+        if (confirmReCheckIn) {
+          router.push(`/labs/${sessions.find(s => s.id === sessionId)?.lab}?session=${sessionId}`);
+        }
+        return;
+      }
+
+      // Perform the check-in
+      const { error: updateError } = await supabase
+        .from('sessions')
+        .update({
+          checked_in_by: userSession.name,
+          checked_in_by_email: userSession.email,
+          checked_in_at: new Date().toISOString()
+        })
+        .eq('id', sessionId)
+        .is('checked_in_by', null); // Only update if no one has checked in yet
+
+      if (updateError) {
+        console.error('Check-in failed:', updateError);
+        showToast("Failed to check in. Please try again.", "error");
+        return;
+      }
+
+      // Check if the update actually happened (race condition protection)
+      const { data: verifySession, error: verifyError } = await supabase
+        .from('sessions')
+        .select('checked_in_by, checked_in_by_email')
+        .eq('id', sessionId)
+        .single();
+
+      if (verifyError) {
+        showToast("Check-in verification failed.", "error");
+        return;
+      }
+
+      // If someone else checked in during our attempt
+      if (verifySession.checked_in_by !== userSession.name) {
+        showToast(
+          `Session was checked in by ${verifySession.checked_in_by} just before you. Please coordinate with them.`, 
+          "error"
+        );
+        return;
+      }
+
+      // Success - navigate to lab control
+      showToast("Successfully checked into session!", "success");
+      const session = sessions.find(s => s.id === sessionId);
+      if (session) {
+        router.push(`/labs/${session.lab}?session=${sessionId}`);
+      }
+
+    } catch (error) {
+      console.error('Check-in error:', error);
+      showToast("Check-in failed. Please try again.", "error");
+    }
+  };
+
+  // Get session check-in status
+  const getSessionCheckInStatus = (session: any) => {
+    if (session.checkedInBy) {
+      const checkedInTime = new Date(session.checkedInAt).toLocaleTimeString();
+      const isCurrentUser = session.checkedInBy === userSession?.name;
+      
+      return {
+        isCheckedIn: true,
+        checkedInBy: session.checkedInBy,
+        checkedInTime,
+        isCurrentUser,
+        canAccess: isCurrentUser // Only the person who checked in can access
+      };
+    }
+    
+    return {
+      isCheckedIn: false,
+      canAccess: true // Anyone can check in if no one has yet
+    };
+  };
+
+  // Updated button logic in your session card
+  const renderSessionButtons = (session: any) => {
+    const checkInAvailable = canCheckIn(session.date, session.startTime, session.endTime) && session.status === "confirmed";
+    const isUnderReview = session.status === "under_review";
+    const checkInStatus = getSessionCheckInStatus(session);
+    
+    if (!canCheckInToSessions()) {
+      return null; // User doesn't have permission to check in
+    }
+
+    if (isUnderReview) {
+      return (
+        <Button disabled className="flex-1">
+          Under Review
+        </Button>
+      );
+    }
+
+    if (!checkInAvailable) {
+      return (
+        <Button disabled className="flex-1">
+          Not Available
+        </Button>
+      );
+    }
+
+    if (checkInStatus.isCheckedIn) {
+      if (checkInStatus.isCurrentUser) {
+        // User has already checked in - allow access to lab controls
+        return (
+          <Button 
+            className="flex-1 bg-green-600 hover:bg-green-700" 
+            onClick={() => router.push(`/labs/${session.lab}?session=${session.id}`)}
+          >
+            Enter Lab Controls
+          </Button>
+        );
+      } else {
+        // Someone else has checked in
+        return (
+          <div className="flex-1">
+            <Button disabled className="w-full">
+              Checked In by {checkInStatus.checkedInBy}
+            </Button>
+            <p className="text-xs text-muted-foreground text-center mt-1">
+              at {checkInStatus.checkedInTime}
+            </p>
+          </div>
+        );
+      }
+    }
+
+    // No one has checked in yet - show check in button
+    return (
+      <Button 
+        className="flex-1" 
+        onClick={() => handleCheckIn(session.id)}
+      >
+        Check In
+      </Button>
+    );
+  };
+
   // Navigate back to dashboard
   const handleBackToDashboard = () => {
     router.push("/dashboard")
-  }
-
-  // Navigate to session detail with check-in validation
-  const navigateToSession = (sessionId: string) => {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (session) {
-      if (canCheckIn(session.date, session.startTime, session.endTime)) {
-        // Pass session ID as a query parameter to the lab status page
-        router.push(`/labs/${session.lab}?session=${sessionId}`)
-      } else {
-        console.log('Check-in not available at this time')
-      }
-    }
   }
 
   // Format time for display
@@ -1023,6 +1224,16 @@ export default function SchedulePage() {
                         />
                         <Label htmlFor="handoutdata" className="text-sm">Handout Data</Label>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="reboot"
+                          checked={newSession.configurations.reboot}
+                          onChange={(e) => handleFormChange("configurations.reboot", e.target.checked)}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="reboot" className="text-sm">Reboot</Label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1123,7 +1334,7 @@ export default function SchedulePage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Display sessions sorted by start time */}
+                {/* Updated session card rendering with check-in functionality */}
                 {filteredSessions
                   .sort((a, b) => parseTime(a.startTime) - parseTime(b.startTime))
                   .map((session) => {
@@ -1131,10 +1342,12 @@ export default function SchedulePage() {
                     const checkInStatus = getCheckInStatus(session.date, session.startTime, session.endTime)
                     const isUnderReview = session.status === "under_review"
                     const sessionDuration = validateTimeRange(session.startTime, session.endTime).duration
+                    const sessionCheckIn = getSessionCheckInStatus(session)
                     
                     return (
                       <Card key={session.id} className={`overflow-hidden border-l-4 ${
-                        isUnderReview ? 'border-l-orange-500' : 'border-l-[#0f4d92]'
+                        isUnderReview ? 'border-l-orange-500' : 
+                        sessionCheckIn.isCheckedIn ? 'border-l-green-500' : 'border-l-[#0f4d92]'
                       }`}>
                         <CardContent className="p-4">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1149,17 +1362,25 @@ export default function SchedulePage() {
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-medium">{session.purpose}</h3>
                                   <Badge>Lab {session.lab}</Badge>
+                                  
+                                  {/* Status badges */}
                                   {isUnderReview && (
                                     <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
                                       Under Review
                                     </Badge>
                                   )}
-                                  {session.status === "confirmed" && (
+                                  {session.status === "confirmed" && !sessionCheckIn.isCheckedIn && (
                                     <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
-                                      Confirmed
+                                      Available
+                                    </Badge>
+                                  )}
+                                  {sessionCheckIn.isCheckedIn && (
+                                    <Badge className="bg-green-600 text-white">
+                                      {sessionCheckIn.isCurrentUser ? 'Checked In (You)' : `Checked In (${sessionCheckIn.checkedInBy})`}
                                     </Badge>
                                   )}
                                 </div>
+                                
                                 <p className="text-sm text-muted-foreground">Created by {session.createdBy}</p>
                                 
                                 {/* Display description if available */}
@@ -1181,11 +1402,18 @@ export default function SchedulePage() {
                                 
                                 {/* Check-in status indicator */}
                                 <div className="flex items-center gap-2 mt-1">
-                                  {session.status === "confirmed" ? (
+                                  {sessionCheckIn.isCheckedIn ? (
+                                    <div className="flex items-center gap-1 text-green-600">
+                                      <CheckCircle className="h-4 w-4" />
+                                      <span className="text-xs font-medium">
+                                        Checked in by {sessionCheckIn.checkedInBy} at {sessionCheckIn.checkedInTime}
+                                      </span>
+                                    </div>
+                                  ) : session.status === "confirmed" ? (
                                     checkInAvailable ? (
                                       <div className="flex items-center gap-1 text-green-600">
                                         <CheckCircle className="h-4 w-4" />
-                                        <span className="text-xs font-medium">{checkInStatus}</span>
+                                        <span className="text-xs font-medium">Ready for check-in</span>
                                       </div>
                                     ) : (
                                       <div className="flex items-center gap-1 text-orange-600">
@@ -1207,22 +1435,17 @@ export default function SchedulePage() {
                                   {session.configurations.homes && <Badge variant="outline">Home Dirs</Badge>}
                                   {session.configurations.userCleanup && <Badge variant="outline">User Cleanup</Badge>}
                                   {session.configurations.handoutdata && <Badge variant="outline">Handout Data</Badge>}
+                                  {session.configurations.reboot && <Badge variant="outline">Reboot</Badge>}
                                 </div>
                               </div>
                             </div>
+                            
                             <div className="flex flex-col gap-2">
                               <div className="flex gap-2">
-                                {canCheckInToSessions() && (
-                                  <Button 
-                                    className="flex-1" 
-                                    onClick={() => navigateToSession(session.id)}
-                                    disabled={!checkInAvailable || isUnderReview}
-                                  >
-                                    {isUnderReview ? "Under Review" : 
-                                     checkInAvailable ? "Check In" : "Not Available"}
-                                  </Button>
-                                )}
-                                {session.createdBy === userSession?.name && (
+                                {renderSessionButtons(session)}
+                                
+                                {/* Delete button - only show for session creator */}
+                                {session.createdBy === userSession?.name && !sessionCheckIn.isCheckedIn && (
                                   <Button
                                     variant="outline"
                                     size="icon"
@@ -1234,7 +1457,9 @@ export default function SchedulePage() {
                                   </Button>
                                 )}
                               </div>
-                              {!checkInAvailable && checkInStatus.includes("starts in") && !isUnderReview && (
+                              
+                              {/* Additional status messages */}
+                              {!sessionCheckIn.isCheckedIn && !checkInAvailable && checkInStatus.includes("starts in") && !isUnderReview && (
                                 <p className="text-xs text-muted-foreground text-center">
                                   Check-in available when session starts
                                 </p>
@@ -1242,6 +1467,11 @@ export default function SchedulePage() {
                               {isUnderReview && (
                                 <p className="text-xs text-orange-600 text-center">
                                   Awaiting admin approval
+                                </p>
+                              )}
+                              {sessionCheckIn.isCheckedIn && !sessionCheckIn.isCurrentUser && (
+                                <p className="text-xs text-muted-foreground text-center">
+                                  Contact {sessionCheckIn.checkedInBy} to coordinate access
                                 </p>
                               )}
                             </div>
