@@ -1,323 +1,192 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabase"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, ChevronLeft, ChevronRight, Filter } from "lucide-react"
+import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-// Define preset lecture slots
+// ---- Time slots
+// Extend your LECTURE_SLOTS to include a final slot to 00:00
 const LECTURE_SLOTS = [
-  { id: 1, startTime: "08:00", endTime: "09:45", label: "08:00 - 09:45" },
-  { id: 2, startTime: "10:15", endTime: "12:00", label: "10:15 - 12:00" },
-  { id: 3, startTime: "12:30", endTime: "13:15", label: "12:30 - 13:15" },
-  { id: 4, startTime: "14:15", endTime: "16:00", label: "14:15 - 16:00" },
-  { id: 5, startTime: "17:00", endTime: "19:00", label: "17:00 - 19:00" },
+  { "id": 1, "startTime": "08:00", "endTime": "09:00", "label": "08:00 - 09:00" },
+{ "id": 2, "startTime": "09:00", "endTime": "10:00", "label": "09:00 - 10:00" },
+{ "id": 3, "startTime": "10:00", "endTime": "11:00", "label": "10:00 - 11:00" },
+{ "id": 4, "startTime": "11:00", "endTime": "12:00", "label": "11:00 - 12:00" },
+{ "id": 5, "startTime": "12:00", "endTime": "13:00", "label": "12:00 - 13:00" },
+{ "id": 6, "startTime": "13:00", "endTime": "14:00", "label": "13:00 - 14:00" },
+{ "id": 7, "startTime": "14:00", "endTime": "15:00", "label": "14:00 - 15:00" },
+{ "id": 8, "startTime": "15:00", "endTime": "16:00", "label": "15:00 - 16:00" },
+{ "id": 9, "startTime": "16:00", "endTime": "17:00", "label": "16:00 - 17:00" },
+{ "id": 10, "startTime": "17:00", "endTime": "18:00", "label": "17:00 - 18:00" },
+{ "id": 11, "startTime": "18:00", "endTime": "19:00", "label": "18:00 - 19:00" },
+{ "id": 12, "startTime": "19:00", "endTime": "20:00", "label": "19:00 - 20:00" },
+{ "id": 13, "startTime": "20:00", "endTime": "21:00", "label": "20:00 - 21:00" },
+{ "id": 14, "startTime": "21:00", "endTime": "22:00", "label": "21:00 - 22:00" },
+{ "id": 15, "startTime": "22:00", "endTime": "23:00", "label": "22:00 - 23:00" },
+{ "id": 16, "startTime": "23:00", "endTime": "00:00", "label": "23:00 - 00:00" }
+
 ]
 
-// Mock data for labs
+// ---- Labs (static list for now)
 const labsData = [
-  { id: "001", name: "Lab 001", capacity: 72, color: "#4f46e5" },
-  { id: "002", name: "Lab 002", capacity: 72, color: "#0891b2" },
-  { id: "003", name: "Lab 003", capacity: 72, color: "#16a34a" },
-  { id: "004", name: "Lab 004", capacity: 72, color: "#ca8a04" },
-  { id: "005", name: "Lab 005", capacity: 72, color: "#dc2626" },
-  { id: "006", name: "Lab 006", capacity: 72, color: "#9333ea" },
-  { id: "007", name: "Lab 007", capacity: 72, color: "#f97316" },
+  { id: "004", name: "Lab 004" },
+  { id: "005", name: "Lab 005" },
+  { id: "006", name: "Lab 006" },
+  { id: "106", name: "Lab 106" },
+  { id: "108", name: "Lab 108" },
+  { id: "109", name: "Lab 109" },
+  { id: "110", name: "Lab 110" },
+  { id: "111", name: "Lab 111" },
 ]
 
-// Mock data for scheduled sessions
-const initialSessions = [
-  {
-    id: 1,
-    lab: "004",
-    date: "2023-05-07",
-    startTime: "08:00",
-    endTime: "09:45",
-    slotId: 1,
-    purpose: "CS1 Programming Tutorial",
-    configurations: {
-      windows: true,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "John Doe",
-  },
-  {
-    id: 2,
-    lab: "002",
-    date: "2023-05-07",
-    startTime: "10:15",
-    endTime: "12:00",
-    slotId: 2,
-    purpose: "MATH2 Exam",
-    configurations: {
-      windows: false,
-      internet: false,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Jane Smith",
-  },
-  {
-    id: 3,
-    lab: "001",
-    date: "2023-05-07",
-    startTime: "14:15",
-    endTime: "16:00",
-    slotId: 4,
-    purpose: "STATS1 R Workshop",
-    configurations: {
-      windows: false,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Mike Johnson",
-  },
-  {
-    id: 4,
-    lab: "003",
-    date: "2023-05-08",
-    startTime: "08:00",
-    endTime: "09:45",
-    slotId: 1,
-    purpose: "CS2 Programming Assignment",
-    configurations: {
-      windows: true,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Sarah Williams",
-  },
-  {
-    id: 5,
-    lab: "005",
-    date: "2023-05-08",
-    startTime: "10:15",
-    endTime: "12:00",
-    slotId: 2,
-    purpose: "PHYS1 Lab Session",
-    configurations: {
-      windows: false,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "David Brown",
-  },
-  {
-    id: 6,
-    lab: "006",
-    date: "2023-05-09",
-    startTime: "12:30",
-    endTime: "13:15",
-    slotId: 3,
-    purpose: "CHEM1 Tutorial",
-    configurations: {
-      windows: true,
-      internet: false,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Emily Davis",
-  },
-  {
-    id: 7,
-    lab: "007",
-    date: "2023-05-09",
-    startTime: "17:00",
-    endTime: "19:00",
-    slotId: 5,
-    purpose: "CS3 Evening Class",
-    configurations: {
-      windows: true,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Michael Wilson",
-  },
-  {
-    id: 8,
-    lab: "001",
-    date: "2023-05-10",
-    startTime: "08:00",
-    endTime: "09:45",
-    slotId: 1,
-    purpose: "MATH1 Tutorial",
-    configurations: {
-      windows: false,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Jessica Taylor",
-  },
-  {
-    id: 9,
-    lab: "002",
-    date: "2023-05-10",
-    startTime: "14:15",
-    endTime: "16:00",
-    slotId: 4,
-    purpose: "CS1 Lab Session",
-    configurations: {
-      windows: true,
-      internet: true,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Robert Johnson",
-  },
-  {
-    id: 10,
-    lab: "003",
-    date: "2023-05-11",
-    startTime: "10:15",
-    endTime: "12:00",
-    slotId: 2,
-    purpose: "STATS2 Exam",
-    configurations: {
-      windows: false,
-      internet: false,
-      homes: true,
-      userCleanup: true,
-    },
-    createdBy: "Amanda Lee",
-  },
-]
-
-// Helper function to get the Monday of the current week
+// ---- Helpers
 const getMonday = (date: Date) => {
-  const day = date.getDay()
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
-  return new Date(date.setDate(diff))
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+  d.setDate(diff)
+  d.setHours(0, 0, 0, 0)
+  return d
 }
-
-// Helper function to format date as YYYY-MM-DD
-const formatDate = (date: Date) => {
-  return date.toISOString().split("T")[0]
-}
-
-// Helper function to add days to a date
 const addDays = (date: Date, days: number) => {
   const result = new Date(date)
   result.setDate(result.getDate() + days)
   return result
 }
+const formatISODate = (date: Date) => date.toISOString().split("T")[0]
+const formatDateForDisplay = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
 
-// Helper function to format date for display
-const formatDateForDisplay = (dateString: string) => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+// ---- Type colors (from purpose keywords)
+const TYPE_COLORS: Record<string, string> = {
+  exam: "#ef4444",
+  tutorial: "#2563eb",
+  workshop: "#16a34a",
+  class: "#9333ea",
+  other: "#0f766e",
+}
+function inferTypeFromPurpose(purpose?: string): keyof typeof TYPE_COLORS {
+  const p = (purpose || "").toLowerCase()
+  if (/(exam|test|assessment)/.test(p)) return "exam"
+  if (/(tutorial|prac|practical|tut)/.test(p)) return "tutorial"
+  if (/(workshop|training)/.test(p)) return "workshop"
+  if (/(class|lecture|lab session|session)/.test(p)) return "class"
+  return "other"
+}
+
+// ---- Types
+type DBSess = {
+  id: number
+  lab: string
+  date: string          // YYYY-MM-DD
+  start_time: string    // HH:MM:SS
+  end_time: string      // HH:MM:SS
+  purpose: string | null
+  status: string | null
+  created_by: string | null
+  created_by_email: string | null
 }
 
 export default function CalendarPage() {
-  const [sessions] = useState(initialSessions)
-  const [currentWeekStart, setCurrentWeekStart] = useState(getMonday(new Date()))
-  const [visibleLabs, setVisibleLabs] = useState(labsData.map((lab) => lab.id))
   const router = useRouter()
+  const [currentWeekStart, setCurrentWeekStart] = useState(getMonday(new Date()))
+  const weekDates = useMemo(
+    () => Array.from({ length: 5 }, (_, i) => formatISODate(addDays(currentWeekStart, i))),
+    [currentWeekStart]
+  )
 
-  // Generate dates for the current week
-  const weekDates = Array.from({ length: 5 }, (_, i) => formatDate(addDays(new Date(currentWeekStart), i)))
+  // NEW: Single lab selection (default first)
+  const [selectedLab, setSelectedLab] = useState<string>(labsData[0].id)
 
-  // Navigate to previous week
-  const goToPreviousWeek = () => {
-    const newWeekStart = addDays(currentWeekStart, -7)
-    setCurrentWeekStart(newWeekStart)
+  const [sessions, setSessions] = useState<DBSess[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch sessions for selected lab & week
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setError(null)
+      try {
+        const { data, error } = await supabase
+          .from("sessions")
+          .select("id, lab, date, start_time, end_time, purpose, status, created_by, created_by_email")
+          .eq("lab", selectedLab)                 // <- one lab at a time
+          .gte("date", weekDates[0])              // Monday
+          .lte("date", weekDates[weekDates.length - 1]) // Friday
+          .order("date", { ascending: true })
+          .order("start_time", { ascending: true })
+
+        if (error) throw error
+        setSessions(data || [])
+      } catch (e: any) {
+        setError(e.message ?? "Failed to load sessions")
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [selectedLab, weekDates])
+
+  // convert "HH:MM" or "HH:MM:SS" -> minutes since midnight
+  const toMinutes = (t: string) => {
+    const [hh, mm] = t.split(":")
+    return parseInt(hh, 10) * 60 + parseInt(mm, 10)
   }
 
-  // Navigate to next week
-  const goToNextWeek = () => {
-    const newWeekStart = addDays(currentWeekStart, 7)
-    setCurrentWeekStart(newWeekStart)
-  }
+  // true if [aStart,aEnd) overlaps [bStart,bEnd)
+  const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
+  Math.max(aStart, bStart) < Math.min(aEnd, bEnd)
 
-  // Navigate to current week
-  const goToCurrentWeek = () => {
-    setCurrentWeekStart(getMonday(new Date()))
-  }
+  // AFTER (interval overlap)
+  const getSessionForDateSlot = (date: string, slotId: number) => {
+    const slot = LECTURE_SLOTS.find(s => s.id === slotId)!
+    const slotStart = toMinutes(slot.startTime)
+    const slotEnd   = toMinutes(slot.endTime)
 
-  // Toggle lab visibility
-  const toggleLabVisibility = (labId: string) => {
-    if (visibleLabs.includes(labId)) {
-      setVisibleLabs(visibleLabs.filter((id) => id !== labId))
-    } else {
-      setVisibleLabs([...visibleLabs, labId])
-    }
-  }
-
-  // Get sessions for a specific date, slot, and lab
-  const getSessionForDateSlotLab = (date: string, slotId: number, labId: string) => {
-    return sessions.find(
-      (session) =>
-        session.date === date && session.slotId === slotId && session.lab === labId && visibleLabs.includes(labId),
+    return sessions.find(s =>
+      s.date === date &&
+      overlaps(toMinutes(s.start_time), toMinutes(s.end_time), slotStart, slotEnd)
     )
   }
 
-  // Navigate to session detail
-  const navigateToSession = (sessionId: number) => {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (session) {
-      router.push(`/labs/${session.lab}`)
-    }
-  }
 
-  // Get lab color
-  const getLabColor = (labId: string) => {
-    const lab = labsData.find((lab) => lab.id === labId)
-    return lab ? lab.color : "#000000"
-  }
 
   return (
     <div className="min-h-screen flex flex-col">
       <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
+            {/* Back now goes to /dashboard */}
             <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/">
+              <Link href="/dashboard">
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
             <h1 className="text-xl font-bold">Lab Timetable</h1>
           </div>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="outline" className="bg-white text-[#0f4d92] hover:bg-gray-100">
-                <Filter className="h-4 w-4 mr-2" />
-                Filter Labs
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="grid gap-4">
-                <h4 className="font-medium">Show/Hide Labs</h4>
-                <div className="grid gap-2">
-                  {labsData.map((lab) => (
-                    <div key={lab.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`lab-${lab.id}`}
-                        checked={visibleLabs.includes(lab.id)}
-                        onCheckedChange={() => toggleLabVisibility(lab.id)}
-                      />
-                      <Label htmlFor={`lab-${lab.id}`} className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: lab.color }}></div>
-                        Lab {lab.id}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
+
+          {/* Lab picker (single selection) */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm opacity-90">Lab:</span>
+            <Select value={selectedLab} onValueChange={setSelectedLab}>
+              <SelectTrigger className="w-[160px] bg-white text-[#0f4d92]">
+                <SelectValue placeholder="Select a lab" />
+              </SelectTrigger>
+              <SelectContent>
+                {labsData.map(l => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </header>
 
@@ -325,15 +194,18 @@ export default function CalendarPage() {
         <Card className="mb-4">
           <CardHeader className="pb-2">
             <div className="flex justify-between items-center">
-              <CardTitle>Weekly Timetable</CardTitle>
+              <CardTitle>
+                Weekly Timetable • {labsData.find(l => l.id === selectedLab)?.name}
+              </CardTitle>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={goToPreviousWeek}>
+                <Button variant="outline" size="sm" onClick={() => setCurrentWeekStart(addDays(currentWeekStart, -7))}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={goToCurrentWeek}>
-                  Today
+                {/* Renamed: This week */}
+                <Button variant="outline" size="sm" onClick={() => setCurrentWeekStart(getMonday(new Date()))}>
+                  This week
                 </Button>
-                <Button variant="outline" size="sm" onClick={goToNextWeek}>
+                <Button variant="outline" size="sm" onClick={() => setCurrentWeekStart(addDays(currentWeekStart, 7))}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -341,84 +213,72 @@ export default function CalendarPage() {
             <div className="text-sm text-muted-foreground">
               {formatDateForDisplay(weekDates[0])} - {formatDateForDisplay(weekDates[4])}
             </div>
+            {loading && <div className="text-sm text-muted-foreground mt-1">Loading sessions…</div>}
+            {error && <div className="text-sm text-red-600 mt-1">Error: {error}</div>}
           </CardHeader>
+
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr>
-                    <th className="p-2 border bg-muted text-left min-w-[100px]">Time Slot</th>
-                    {weekDates.map((date, index) => (
-                      <th key={date} className="p-2 border bg-muted text-center min-w-[180px]">
+                    <th className="p-2 border bg-muted text-left min-w-[120px]">Time Slot</th>
+                    {weekDates.map(date => (
+                      <th key={date} className="p-2 border bg-muted text-center min-w-[220px]">
                         {formatDateForDisplay(date)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {LECTURE_SLOTS.map((slot) => (
+                  {LECTURE_SLOTS.map(slot => (
                     <tr key={slot.id}>
                       <td className="p-2 border font-medium text-sm">{slot.label}</td>
-                      {weekDates.map((date) => (
-                        <td key={`${date}-${slot.id}`} className="p-2 border relative">
-                          <div className="grid gap-1">
-                            {labsData
-                              .filter((lab) => visibleLabs.includes(lab.id))
-                              .map((lab) => {
-                                const session = getSessionForDateSlotLab(date, slot.id, lab.id)
-                                if (!session) return null
+                      {weekDates.map(date => {
+                        const s = getSessionForDateSlot(date, slot.id)
+                        if (!s) {
+                          return (
+                            <td key={`${date}-${slot.id}`} className="p-2 border align-top">
+                              <div className="text-xs text-muted-foreground border rounded p-1">
+                                Available
+                              </div>
+                            </td>
+                          )
+                        }
 
-                                return (
-                                  <TooltipProvider key={`${date}-${slot.id}-${lab.id}`}>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <div
-                                          className="p-1 rounded text-xs text-white cursor-pointer truncate"
-                                          style={{ backgroundColor: getLabColor(lab.id) }}
-                                          onClick={() => navigateToSession(session.id)}
-                                        >
-                                          <div className="font-bold">Lab {lab.id}</div>
-                                          <div className="truncate">{session.purpose}</div>
-                                        </div>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <div className="space-y-1">
-                                          <p className="font-bold">{session.purpose}</p>
-                                          <p>
-                                            Lab {session.lab} | {session.createdBy}
-                                          </p>
-                                          <div className="flex flex-wrap gap-1 mt-1">
-                                            {session.configurations.windows && (
-                                              <Badge variant="outline" className="text-xs">
-                                                Windows
-                                              </Badge>
-                                            )}
-                                            {session.configurations.internet && (
-                                              <Badge variant="outline" className="text-xs">
-                                                Internet
-                                              </Badge>
-                                            )}
-                                            {session.configurations.homes && (
-                                              <Badge variant="outline" className="text-xs">
-                                                Home Dirs
-                                              </Badge>
-                                            )}
-                                            {session.configurations.userCleanup && (
-                                              <Badge variant="outline" className="text-xs">
-                                                User Cleanup
-                                              </Badge>
-                                            )}
-                                          </div>
-                                          <p className="text-xs italic mt-1">Click to manage</p>
-                                        </div>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                )
-                              })}
-                          </div>
-                        </td>
-                      ))}
+                        const type = inferTypeFromPurpose(s.purpose || undefined)
+                        const bg = TYPE_COLORS[type]
+                        return (
+                          <td key={`${date}-${slot.id}`} className="p-2 border align-top">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className="p-1 rounded text-xs text-white cursor-pointer truncate"
+                                    style={{ backgroundColor: bg }}
+                                  >
+                                    <div className="font-bold">{type.toUpperCase()}</div>
+                                    <div className="truncate">{s.purpose ?? "Session"}</div>
+                                    <div className="opacity-90">
+                                      {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}
+                                    </div>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <div className="space-y-1">
+                                    <p className="font-bold">{s.purpose ?? "Session"}</p>
+                                    <p>{s.date} {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}</p>
+                                    {(s.created_by || s.created_by_email) && (
+                                      <p className="text-xs">By {s.created_by ?? s.created_by_email}</p>
+                                    )}
+                                    {s.status && <Badge variant="outline" className="text-xs">{s.status}</Badge>}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -426,27 +286,22 @@ export default function CalendarPage() {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
+        <Card className="mt-4">
           <CardHeader>
-            <CardTitle>Lab Color Legend</CardTitle>
+            <CardTitle>Session Type Legend</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {labsData.map((lab) => (
-                <div key={lab.id} className="flex items-center gap-2">
-                  <div
-                    className="w-4 h-4 rounded-full"
-                    style={{ backgroundColor: lab.color, opacity: visibleLabs.includes(lab.id) ? 1 : 0.3 }}
-                  ></div>
-                  <span className={visibleLabs.includes(lab.id) ? "font-medium" : "text-muted-foreground"}>
-                    Lab {lab.id}
-                  </span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {Object.entries(TYPE_COLORS).map(([type, color]) => (
+                <div key={type} className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded" style={{ backgroundColor: color }} />
+                  <span className="capitalize">{type}</span>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
+
       </main>
     </div>
   )
