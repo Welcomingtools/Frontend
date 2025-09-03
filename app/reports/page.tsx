@@ -566,7 +566,7 @@ const sessionByDay = useMemo(() => {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
             <div>
               <h2 className="text-3xl font-bold tracking-tight">Reports</h2>
-              <p className="text-muted-foreground">Select a date range to analyze sessions, staff behaviour, and incidents.</p>
+              <p className="text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents.</p>
             </div>
             <div className="flex items-end gap-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">

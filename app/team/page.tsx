@@ -824,7 +824,7 @@ export default function TeamPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Negligence">Negligence</SelectItem>
-                    <SelectItem value="User left team">User left team</SelectItem>
+                    <SelectItem value="Lateness/Absenteeism">Lateness/Absenteeism</SelectItem>
                     <SelectItem value="Misconduct/abuse">Misconduct/abuse</SelectItem>
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>

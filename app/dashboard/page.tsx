@@ -180,7 +180,7 @@ export default function Dashboard() {
                   <Users className="h-8 w-8 text-[#0f4d92]" />
                   <div>
                     <h3 className="font-semibold">Team Management</h3>
-                    <p className="text-sm text-muted-foreground">Manage TLA access and permissions</p>
+                    <p className="text-sm text-muted-foreground">Manage user access and permissions</p>
                   </div>
                 </div>
                 <div className="mt-4">
@@ -221,7 +221,7 @@ export default function Dashboard() {
                   <FileText className="h-8 w-8 text-[#0f4d92]" />
                   <div>
                     <h3 className="font-semibold">Reports</h3>
-                    <p className="text-sm text-muted-foreground">View reports based on current operations, staff activity and maintenance</p>
+                    <p className="text-sm text-muted-foreground">View reports based on current session activity, staff activity and maintenance</p>
                   </div>
                 </div>
                 <div className="mt-4">
