@@ -97,24 +97,32 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Schedule Session Tab */}
-            <div className="bg-card rounded-lg border shadow-sm p-6">
-              <div className="flex items-center gap-4">
-                <Calendar className="h-8 w-8 text-[#0f4d92]" />
-                <div>
-                  <h3 className="font-semibold">Schedule Sessions</h3>
-                  <p className="text-sm text-muted-foreground">Book labs for upcoming classes and exams</p>
+            {/* Schedule Session Tab - Conditionally rendered based on role */}
+            {userSession.role !== "BCDR" && (
+              <div className="bg-card rounded-lg border shadow-sm p-6">
+                <div className="flex items-center gap-4">
+                  <Calendar className="h-8 w-8 text-[#0f4d92]" />
+                  <div>
+                    <h3 className="font-semibold">
+                      {userSession.role === "Welcoming Team" ? "Scheduled Sessions" : "Schedule Sessions"}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {userSession.role === "Welcoming Team" 
+                        ? "View upcoming lab sessions" 
+                        : "Book labs for upcoming classes and exams"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Link href="/schedule">
+                    <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
+                      {userSession.role === "Welcoming Team" ? "View Sessions" : "Schedule"}
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </Link>
                 </div>
               </div>
-              <div className="mt-4">
-                <Link href="/schedule">
-                  <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
-                    Schedule
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
+            )}
 
             {/* Lab Timetable Tab */}
             <div className="bg-card rounded-lg border shadow-sm p-6">
@@ -174,7 +182,7 @@ export default function Dashboard() {
             </div>
 
             {/* ROLE-BASED ACCESS: Only show Team Management for Admin and TLA */}
-            {(userSession.role !== "BCDR" && userSession.role !== "Welcoming Team" ) ? (
+            {(userSession.role === "Admin" || userSession.role === "TLA") ? (
               <div className="bg-card rounded-lg border shadow-sm p-6">
                 <div className="flex items-center gap-4">
                   <Users className="h-8 w-8 text-[#0f4d92]" />
@@ -192,7 +200,7 @@ export default function Dashboard() {
                   </Link>
                 </div>
               </div>
-             ) : (
+            ) : (
               <div className="bg-card rounded-lg border shadow-sm p-6">
                 <div className="flex items-center gap-4">
                   <Users className="h-8 w-8 text-[#0f4d92]" />
@@ -200,7 +208,7 @@ export default function Dashboard() {
                     <h3 className="font-semibold">My Team</h3>
                     <p className="text-sm text-muted-foreground">View team members</p>
                   </div>
-               </div>
+                </div>
                 <div className="mt-4">
                   <Link href="/team">
                     <Button className="w-full bg-[#0f4d92] hover:bg-[#0a3d7a]">
@@ -212,11 +220,9 @@ export default function Dashboard() {
               </div>
             )}
           
-
-            
             {/* ROLE-BASED ACCESS: Only show Reports to Admins */}
             {userSession.role === "Admin" && (
-              <div className="bg-card rounded-lg border shadow-sm p-6 h-48">
+              <div className="bg-card rounded-lg border shadow-sm p-6">
                 <div className="flex items-center gap-4">
                   <FileText className="h-8 w-8 text-[#0f4d92]" />
                   <div>
