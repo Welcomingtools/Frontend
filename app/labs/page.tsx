@@ -706,17 +706,17 @@ export default function LabsOverview() {
   const generateSeatingPlan = () => {
     // Validate required fields
     if (!examType) {
-      showErrorToast("Missing Information", "Please select an exam type")
+      showErrorToast("Missing Information", "Please select an assessment type")
       return
     }
     
     if (!examDate) {
-      showErrorToast("Missing Information", "Please select an exam date")
+      showErrorToast("Missing Information", "Please select an assessment date")
       return
     }
     
     if (!examName.trim()) {
-      showErrorToast("Missing Information", "Please enter an exam/test name")
+      showErrorToast("Missing Information", "Please enter an assessment name")
       return
     }
 
@@ -1208,11 +1208,11 @@ export default function LabsOverview() {
               <div className="space-y-4 sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:gap-4 sm:space-y-0">
                 <div>
                   <Label htmlFor="examType" className="text-blue-900 text-sm">
-                    Exam Type <span className="text-red-500">*</span>
+                    Assessment Type <span className="text-red-500">*</span>
                   </Label>
                   <Select value={examType} onValueChange={(value: any) => setExamType(value)}>
                     <SelectTrigger className="border-blue-200 mt-1">
-                      <SelectValue placeholder="Select exam type" />
+                      <SelectValue placeholder="Select assessment type" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="exam">Examination</SelectItem>
@@ -1236,7 +1236,7 @@ export default function LabsOverview() {
 
                 <div className="sm:col-span-2 lg:col-span-1">
                   <Label htmlFor="examName" className="text-blue-900 text-sm">
-                    Exam/Test Name <span className="text-red-500">*</span>
+                    Assessment Name <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="examName"
