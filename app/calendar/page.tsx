@@ -154,6 +154,41 @@ export default function CalendarPage() {
       overlaps(toMinutes(s.start_time), toMinutes(s.end_time), slotStart, slotEnd)
     )
   }
+  // put alongside your state
+  const fetchSessions = async () => {
+    setLoading(true); setError(null)
+    try {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("id, lab, date, start_time, end_time, purpose, status, created_by, created_by_email")
+        .eq("lab", selectedLab)
+        .gte("date", weekDates[0])
+        .lte("date", weekDates[weekDates.length - 1])
+        .order("date", { ascending: true })
+        .order("start_time", { ascending: true })
+
+      if (error) throw error
+      setSessions(data || [])
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load sessions")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // refetch when lab/week changes
+  useEffect(() => { fetchSessions() }, [selectedLab, weekDates.join("|")])
+
+  // subscribe to INSERT/UPDATE/DELETE so new bookings appear live
+  useEffect(() => {
+    const channel = supabase
+      .channel("realtime:sessions")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+        fetchSessions()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [selectedLab, weekDates.join("|")])
 
 
 
