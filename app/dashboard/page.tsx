@@ -61,7 +61,7 @@ export default function Dashboard() {
             onClick={handleLogout}
             className="text-white hover:bg-white/10 flex items-center gap-2"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4 text-white group-hover:text-white" />
             Logout
           </Button>
         </div>

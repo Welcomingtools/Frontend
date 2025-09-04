@@ -536,39 +536,24 @@ const sessionByDay = useMemo(() => {
           <div className="flex items-center gap-4">
             <Link href="/dashboard">
               <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 flex items-center gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold">MSS Welcoming Tools</h1>
-              <p className="text-sm opacity-80">University of the Witwatersrand</p>
-              <p className="text-xs opacity-60">Welcome, {userSession.name} ({userSession.role})</p>
+              <h1 className="text-xl font-bold">Reports</h1>
+              <p className="text-xs opacity-60"> {userSession.name} ({userSession.role}) - Can view reports</p>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              if (typeof window !== "undefined") sessionStorage.removeItem("userSession")
-              router.push("/login")
-            }}
-            className="text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <LogOut className="h-4 w-4" />
-            Logout
-          </Button>
         </div>
       </header>
 
       <main className="flex-1 container mx-auto p-4">
-        <div className="space-y-6 py-6">
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight">Reports</h2>
-              <p className="text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents.</p>
+        <div className="space-y-6 pt-2 pb-66">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="pt-2">
+              <p className="text-lg text-black text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents.</p>
             </div>
-            <div className="flex items-end gap-4">
+            <div className="flex items-end gap-4 pb-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
                 <div>
                   <Label htmlFor="from">From</Label>

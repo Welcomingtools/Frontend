@@ -1093,16 +1093,14 @@ export default function LabsOverview() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <header className="bg-[#1e40af] text-white p-4">
-          <div className="container mx-auto flex items-center gap-4">
-          <Link 
-            href="/dashboard"
-            className="cursor-pointer hover:bg-blue-600 p-1 rounded"
-            title="Go to dashboard"
-          >
-            <ArrowLeft className="h-6 w-6" />
-          </Link>
-            <h1 className="text-xl sm:text-2xl font-bold">TW Kambule Laboratories</h1>
+        <header className="bg-[#0f4d92] text-white p-4">
+          <div className="container mx-auto flex justify-between items-center">
+          <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
+              <Link href="/dashboard">
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
+              </Link>
+            </Button>
+            <h1 className="text-xl font-bold">TW Kambule Laboratories</h1>
           </div>
         </header>
         <main className="container mx-auto p-4 sm:p-6">
@@ -1120,17 +1118,15 @@ export default function LabsOverview() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-[#1e40af] text-white p-4">
+      <header className="bg-[#0f4d92] text-white p-4">
         <div className="container mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-4">
-              <Link 
-                href="/dashboard"
-                className="cursor-pointer hover:bg-blue-600 p-1 rounded"
-                title="Go to dashboard"
-              >
-                <ArrowLeft className="h-5 w-5 sm:h-6 sm:w-6" />
-              </Link>
+              <Link href="/dashboard">
+              <Button variant="ghost" size="sm" className="text-white hover:bg-white/10">
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
+              </Button>
+            </Link>
               <h1 className="text-lg sm:text-2xl font-bold">TW Kambule Labs</h1>
             </div>
             

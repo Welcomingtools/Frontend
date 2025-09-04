@@ -534,7 +534,7 @@ export default function TeamPage() {
               <div className="pt-4">
                 <Button asChild className="w-full">
                   <Link href="/dashboard">
-                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
                     Return to Dashboard
                   </Link>
                 </Button>
@@ -552,9 +552,9 @@ export default function TeamPage() {
       <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild className="text-white">
+            <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
               <Link href="/dashboard">
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
               </Link>
             </Button>
             <div>
