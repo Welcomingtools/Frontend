@@ -79,7 +79,7 @@ export default function TeamPage() {
 
   const [reportOpen, setReportOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<Member | null>(null)
-  const [reportForm, setReportForm] = useState({ reason: "Incorrect role", details: "" })
+  const [reportForm, setReportForm] = useState({ reason: "", details: "" })
   
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
@@ -100,6 +100,7 @@ export default function TeamPage() {
 
   // Local form for editing
   const [reportEdit, setReportEdit] = useState({ reason: "", details: "", status: "Submitted" as Report["status"] })
+  const [reportError, setReportError] = useState<string | null>(null)
 
   // Date formatter
   const fmtDate = (dateStr: string) => {
@@ -396,34 +397,50 @@ export default function TeamPage() {
   // Reporting feature
   const openReport = (member: Member) => {
     setReportTarget(member)
-    setReportForm({ reason: "Incorrect role", details: "" })
+    setReportForm({ reason: "", details: "" })
+    setReportError(null)
     setReportOpen(true)
   }
 
-  const submitReport = async () => {
+    const submitReport = async () => {
     if (!reportTarget || !userSession) return
-    
-    try {
-      const { error } = await supabase
-        .from('user_reports')
-        .insert([{
-          reported_user_id: reportTarget.id,
-          reported_user_name: reportTarget.name,
-          reported_user_email: reportTarget.email.toLowerCase().trim(),
-          reported_user_role: reportTarget.role,
-          reporter_email: userSession.email.toLowerCase().trim(),
-          reporter_name: userSession.name,
-          reporter_role: userSession.role,
-          reason: reportForm.reason,
-          details: reportForm.details,
-          status: "Submitted"
-        }])
 
-      if (error) {
-        console.error("Report failed:", error)
-        alert("Failed to submit report: " + error.message)
-        return
-      }
+    if (!reportForm.reason || reportForm.reason.trim() === "") {
+      setReportError("Please select a reason before submitting.")
+      return
+    }
+    setReportError(null) // clear error once valid
+
+    try {
+ // replace your insert with this, right before closing the dialog
+  const { data, error } = await supabase
+    .from("user_reports")
+    .insert([
+      {
+        reported_user_id: reportTarget.id,
+        reported_user_name: reportTarget.name,
+        reported_user_email: reportTarget.email.toLowerCase().trim(),
+        reported_user_role: reportTarget.role,
+        reporter_email: userSession.email.toLowerCase().trim(),
+        reporter_name: userSession.name,
+        reporter_role: userSession.role,
+        reason: reportForm.reason,
+        details: reportForm.details,
+        status: "Submitted",
+      },
+    ])
+    .select()
+    .single()
+
+  if (error) {
+    console.error("Report failed:", error)
+    alert("Failed to submit report: " + error.message)
+    return
+  }
+
+// 👉 instant UI update
+if (data) setReports(prev => [data as Report, ...prev])
+
 
       setReportOpen(false)
       alert("Report submitted. Thank you!")
@@ -814,12 +831,12 @@ export default function TeamPage() {
 
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="reason">Reason</Label>
+                <Label htmlFor="reason">Reason <span className="text-red-500">*</span></Label>
                 <Select
                   value={reportForm.reason}
                   onValueChange={(v) => setReportForm(p => ({ ...p, reason: v }))}
                 >
-                  <SelectTrigger id="reason">
+                  <SelectTrigger id="reason" aria-invalid={!!reportError}>
                     <SelectValue placeholder="Select a reason" />
                   </SelectTrigger>
                   <SelectContent>
@@ -829,6 +846,7 @@ export default function TeamPage() {
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
+                {reportError && <p className="text-sm text-red-500">{reportError}</p>}
               </div>
 
               <div className="grid gap-2">
@@ -916,8 +934,8 @@ export default function TeamPage() {
                           <SelectValue placeholder="Select a reason" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Incorrect role">Incorrect role</SelectItem>
-                          <SelectItem value="User left team">User left team</SelectItem>
+                          <SelectItem value="Negligence">Negligence</SelectItem>
+                          <SelectItem value="Lateness/Absenteeism">Lateness/Absenteeism</SelectItem>
                           <SelectItem value="Misconduct/abuse">Misconduct/abuse</SelectItem>
                           <SelectItem value="Other">Other</SelectItem>
                         </SelectContent>
