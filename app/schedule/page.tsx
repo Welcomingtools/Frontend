@@ -24,6 +24,23 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+
+
+const createTimestampForStorage = () => {
+  return new Date().toISOString()
+}
+const shouldAutoComplete = (sessionDate: string, startTime: string, sessionStatus: string) => {
+  if (sessionStatus === 'completed') return false;
+  
+  const now = new Date();
+  const sessionStart = getSessionDateTime(sessionDate, startTime);
+  const autoCompleteTime = new Date(sessionStart.getTime() + 30 * 60 * 1000); // 30 minutes after start
+  
+  return now >= autoCompleteTime;
+};
+
+
+
 // Define predefined purpose options
 const PURPOSE_OPTIONS = [
   { value: "exam", label: "Exam" },
@@ -86,6 +103,7 @@ interface SessionData {
   checkedInBy?: string
   checkedInByEmail?: string
   checkedInAt?: string
+  completedAt?: string  // Add this field
   sessionStatus?: 'pending' | 'active' | 'completed'
 }
 
@@ -220,6 +238,43 @@ export default function SchedulePage() {
   // NEW: Check-in loading states
   const [checkingInSessions, setCheckingInSessions] = useState<Set<string>>(new Set())
   const [completingSessions, setCompletingSessions] = useState<Set<string>>(new Set())
+
+  const autoCompleteSessions = async () => {
+    try {
+      const sessionsToComplete = sessions.filter(session => 
+        session.sessionStatus === 'active' && 
+        shouldAutoComplete(session.date, session.startTime, session.sessionStatus)
+      );
+  
+      if (sessionsToComplete.length === 0) return;
+  
+      console.log(`Auto-completing ${sessionsToComplete.length} sessions`);
+  
+      for (const session of sessionsToComplete) {
+        const completionTimestamp = createTimestampForStorage();
+        
+        const { error } = await supabase
+          .from('sessions')
+          .update({
+            session_status: 'completed',
+            completed_at: completionTimestamp
+          })
+          .eq('id', session.id)
+          .eq('session_status', 'active'); // Only update if still active
+  
+        if (error) {
+          console.error(`Failed to auto-complete session ${session.id}:`, error);
+        } else {
+          console.log(`Auto-completed session ${session.id} (${session.purpose})`);
+        }
+      }
+  
+      // Refresh sessions data after auto-completion
+      await loadSessions();
+    } catch (error) {
+      console.error('Error in auto-completion process:', error);
+    }
+  };
   
   const router = useRouter()
 
@@ -258,6 +313,17 @@ export default function SchedulePage() {
     }
   }, [router])
 
+  useEffect(() => {
+    const autoCompleteTimer = setInterval(() => {
+      autoCompleteSessions();
+    }, 5 * 60 * 1000); // Run every 5 minutes
+  
+    // Run once immediately when component mounts
+    autoCompleteSessions();
+  
+    return () => clearInterval(autoCompleteTimer);
+  }, [sessions]);
+
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
@@ -287,6 +353,7 @@ export default function SchedulePage() {
           checked_in_by,
           checked_in_by_email,
           checked_in_at,
+          completed_at,
           session_status
         `)
         .order('start_time');
@@ -338,6 +405,7 @@ export default function SchedulePage() {
         checkedInBy: session.checked_in_by,
         checkedInByEmail: session.checked_in_by_email,
         checkedInAt: session.checked_in_at,
+        completedAt: session.completed_at, 
         sessionStatus: session.session_status || 'pending',
       })) || [];
 
@@ -823,30 +891,34 @@ export default function SchedulePage() {
   // Complete session function
   const handleCompleteSession = async (sessionId: string) => {
     if (!userSession) return;
-
+  
     const confirmComplete = window.confirm(
       "Are you sure you want to mark this session as completed? This will end your session and allow others to check in if needed."
     );
     
     if (!confirmComplete) return;
-
+  
     setCompletingSessions(prev => new Set([...prev, sessionId]));
-
+  
     try {
+      // Create completion timestamp
+      const completionTimestamp = createTimestampForStorage();
+  
       const { error } = await supabase
         .from('sessions')
         .update({
-          session_status: 'completed'
+          session_status: 'completed',
+          completed_at: completionTimestamp  // Add this field
         })
         .eq('id', sessionId)
         .eq('checked_in_by', userSession.name); // Only allow the person who checked in to complete
-
+  
       if (error) {
         console.error('Error completing session:', error);
         showToast("Failed to complete session.", "error");
         return;
       }
-
+  
       showToast("Session marked as completed successfully!", "success");
     } catch (error) {
       console.error('Complete session error:', error);
@@ -859,11 +931,13 @@ export default function SchedulePage() {
       });
     }
   };
+  
 
   // Get session check-in status
   const getSessionCheckInStatus = (session: any) => {
     if (session.checkedInBy) {
       const checkedInTime = new Date(session.checkedInAt).toLocaleTimeString();
+      const completedTime = session.completedAt ? new Date(session.completedAt).toLocaleTimeString() : undefined;
       const isCurrentUser = session.checkedInBy === userSession?.name;
       const sessionStatus = session.sessionStatus || 'active';
       
@@ -871,6 +945,7 @@ export default function SchedulePage() {
         isCheckedIn: true,
         checkedInBy: session.checkedInBy,
         checkedInTime,
+        completedTime,
         isCurrentUser,
         sessionStatus,
         canAccess: isCurrentUser && sessionStatus !== 'completed'
@@ -1566,20 +1641,20 @@ export default function SchedulePage() {
                                 </div>
                                 
                                 <div className="flex items-center gap-2 mt-1">
-                                  {sessionCheckIn.sessionStatus === 'completed' ? (
-                                    <div className="flex items-center gap-1 text-gray-600">
-                                      <CheckCircle className="h-4 w-4" />
-                                      <span className="text-xs font-medium">
-                                        Session completed by {sessionCheckIn.checkedInBy} at {sessionCheckIn.checkedInTime}
-                                      </span>
-                                    </div>
-                                  ) : sessionCheckIn.isCheckedIn ? (
-                                    <div className="flex items-center gap-1 text-green-600">
-                                      <CheckCircle className="h-4 w-4" />
-                                      <span className="text-xs font-medium">
-                                        Active - Checked in by {sessionCheckIn.checkedInBy} at {sessionCheckIn.checkedInTime}
-                                      </span>
-                                    </div>
+                                {sessionCheckIn.sessionStatus === 'completed' ? (
+                                  <div className="flex items-center gap-1 text-gray-600">
+                                    <CheckCircle className="h-4 w-4" />
+                                    <span className="text-xs font-medium">
+                                      Session completed by {sessionCheckIn.checkedInBy} at {sessionCheckIn.completedTime || 'Unknown time'}
+                                    </span>
+                                  </div>
+                                ) : sessionCheckIn.isCheckedIn ? (
+                                  <div className="flex items-center gap-1 text-green-600">
+                                    <CheckCircle className="h-4 w-4" />
+                                    <span className="text-xs font-medium">
+                                      Active - Checked in by {sessionCheckIn.checkedInBy} at {sessionCheckIn.checkedInTime}
+                                    </span>
+                                  </div>
                                   ) : isCheckingIn ? (
                                     <div className="flex items-center gap-1 text-blue-600">
                                       <Loader2 className="h-4 w-4 animate-spin" />
