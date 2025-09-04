@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2, RefreshCw } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
@@ -93,7 +94,7 @@ interface Lab {
   totalMachines: number
   machinesUp: number
   machinesDown: number
-  status: "Available" | "In Use" | "Maintenance" | "Loading"
+  status: "Available" | "In Use" | "Offline" | "Loading"
   currentBooking?: {
     course: string
     instructor: string
@@ -121,7 +122,7 @@ export default function LabsOverview() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [studentNumbers, setStudentNumbers] = useState("")
-  const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference">("fill-first")
+  const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference" | "select-manually">("fill-first")
   const [allocations, setAllocations] = useState<StudentAllocation[]>([])
   const [error, setError] = useState("")
   const [examDate, setExamDate] = useState(new Date().toISOString().split('T')[0])
@@ -130,6 +131,7 @@ export default function LabsOverview() {
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [importedStudents, setImportedStudents] = useState<string[]>([])
   const [inputMethod, setInputMethod] = useState<"manual" | "csv">("manual")
+  const [selectedLabs, setSelectedLabs] = useState<string[]>([])
 
   // Lab capacity data - SAME AS LabStatusPage
   const labCapacities: Record<string, number> = {
@@ -148,7 +150,7 @@ export default function LabsOverview() {
     machinesUp: number; 
     machinesDown: number; 
     lastUpdated: string;
-    onlineMachineIds: string[] // NEW: Return the actual list of online machines
+    onlineMachineIds: string[]
   }> => {
     try {
       const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/listmachinesup`, {
@@ -168,7 +170,7 @@ export default function LabsOverview() {
             machinesUp: onlineMachineIds.length,
             machinesDown: totalMachines - onlineMachineIds.length,
             lastUpdated: new Date().toLocaleTimeString(),
-            onlineMachineIds // Return the list of online machines
+            onlineMachineIds
           }
         } else if (data.success && Array.isArray(data.output)) {
           const cleanOutput = data.output.map((line: string) => 
@@ -179,7 +181,7 @@ export default function LabsOverview() {
             machinesUp: cleanOutput.length,
             machinesDown: totalMachines - cleanOutput.length,
             lastUpdated: new Date().toLocaleTimeString(),
-            onlineMachineIds: cleanOutput // Return the list of online machines
+            onlineMachineIds: cleanOutput
           }
         }
       }
@@ -197,7 +199,7 @@ export default function LabsOverview() {
           machinesUp: cachedLab.machinesUp,
           machinesDown: cachedLab.machinesDown,
           lastUpdated: cachedLab.lastUpdated || 'Unknown',
-          onlineMachineIds: cachedLab.onlineMachineIds || [] // Return empty array as fallback
+          onlineMachineIds: cachedLab.onlineMachineIds || []
         }
       }
       
@@ -207,19 +209,17 @@ export default function LabsOverview() {
         machinesUp: 0,
         machinesDown: totalMachines,
         lastUpdated: 'Error',
-        onlineMachineIds: [] // Return empty array as fallback
+        onlineMachineIds: []
       }
     }
   }
 
   // Generate machines for each lab with the corrected TWK naming convention
-  // UPDATED: Now uses the actual list of online machines to set isWorking status
   const generateMachines = (labId: string, totalMachines: number, onlineMachineIds: string[]): Machine[] => {
     const machines: Machine[] = []
     let machineIndex = 0
 
     if (labId === "004" || labId === "005" || labId === "006") {
-      // Labs 004, 005, 006 have 10 rows with 10 seats each (100 machines)
       for (let row = 1; row <= 10; row++) {
         for (let position = 1; position <= 10; position++) {
           machineIndex++
@@ -229,12 +229,11 @@ export default function LabsOverview() {
             labId,
             row,
             position,
-            isWorking: onlineMachineIds.includes(machineId), // Use the actual list of online machines
+            isWorking: onlineMachineIds.includes(machineId),
           })
         }
       }
     } else if (labId === "106") {
-      // Lab 106 has a custom layout with 16 machines
       const lab106Layout = [
         { row: 1, positions: 2 },
         { row: 2, positions: 1 },
@@ -253,12 +252,11 @@ export default function LabsOverview() {
             labId,
             row: rowConfig.row,
             position,
-            isWorking: onlineMachineIds.includes(machineId), // Use the actual list of online machines
+            isWorking: onlineMachineIds.includes(machineId),
           })
         }
       }
     } else {
-      // Labs 108, 109, 110, 111 have different layouts
       const layouts = {
         "108": [
           { row: 1, seats: 9 },
@@ -305,7 +303,7 @@ export default function LabsOverview() {
             labId,
             row: rowConfig.row,
             position,
-            isWorking: onlineMachineIds.includes(machineId), // Use the actual list of online machines
+            isWorking: onlineMachineIds.includes(machineId),
           })
         }
       }
@@ -314,27 +312,21 @@ export default function LabsOverview() {
     return machines
   }
 
-  // UPDATED: useEffect to check cache first, only fetch if needed
   useEffect(() => {
     const cache = getLabsCache()
     
-    // If we have cached data, use it immediately
     if (cache.isInitialized && cache.data.length > 0) {
       setLabs(cache.data)
       setIsLoading(false)
       return
     }
 
-    // Only fetch if no cached data exists
     fetchAllLabsData()
   }, [])
 
-  // NEW: Separate function to fetch all labs data
-  // UPDATED: Now fetches and stores the list of online machines
   const fetchAllLabsData = async () => {
     setIsLoading(true)
     
-    // Initialize labs with loading state
     const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
     const initialLabs: Lab[] = labIds.map(labId => ({
       id: labId,
@@ -347,18 +339,16 @@ export default function LabsOverview() {
       allocatedStudents: [],
       lastUpdated: undefined,
       isLoading: true,
-      onlineMachineIds: [] // Initialize with empty array
+      onlineMachineIds: []
     }))
     
     setLabs(initialLabs)
-    setIsLoading(false) // Show the loading cards immediately
+    setIsLoading(false)
 
-    // Fetch data for each lab individually and update as soon as each completes
     labIds.forEach(async (labId) => {
       try {
         const status = await fetchLabMachineStatus(labId)
         
-        // Update only this specific lab as soon as its data is ready
         setLabs(prevLabs => {
           const updatedLabs = prevLabs.map(lab => {
             if (lab.id === labId) {
@@ -367,16 +357,15 @@ export default function LabsOverview() {
                 machinesUp: status.machinesUp,
                 machinesDown: status.machinesDown,
                 lastUpdated: status.lastUpdated,
-                status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-                machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds), // Pass onlineMachineIds
+                status: status.machinesUp > 0 ? "Available" as const : "Offline" as const,
+                machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds),
                 isLoading: false,
-                onlineMachineIds: status.onlineMachineIds // Store the list of online machines
+                onlineMachineIds: status.onlineMachineIds
               }
             }
             return lab
           })
           
-          // Update cache immediately when any lab data changes
           setLabsCache(updatedLabs)
           return updatedLabs
         })
@@ -384,15 +373,14 @@ export default function LabsOverview() {
       } catch (error) {
         console.error(`Failed to fetch data for Lab ${labId}:`, error)
         
-        // Update this lab to show error state
         setLabs(prevLabs => {
           const updatedLabs = prevLabs.map(lab => 
             lab.id === labId ? { 
               ...lab, 
               isLoading: false, 
-              status: "Maintenance" as const,
+              status: "Offline" as const,
               lastUpdated: 'Error',
-              onlineMachineIds: [] // Set empty array on error
+              onlineMachineIds: []
             } : lab
           )
           setLabsCache(updatedLabs)
@@ -402,14 +390,11 @@ export default function LabsOverview() {
     })
   }
 
-  // UPDATED: refreshAllLabs function to handle onlineMachineIds
   const refreshAllLabs = async () => {
     setIsRefreshing(true)
     
-    // Clear cache
     clearLabsCache()
     
-    // Set all labs to loading state
     setLabs(prevLabs => 
       prevLabs.map(lab => ({ ...lab, isLoading: true, status: "Loading" as const }))
     )
@@ -417,12 +402,10 @@ export default function LabsOverview() {
     try {
       const labIds = ["004", "005", "006", "106", "108", "109", "110", "111"]
       
-      // Fetch each lab individually and update progressively
       const refreshPromises = labIds.map(async (labId) => {
         try {
           const status = await fetchLabMachineStatus(labId)
           
-          // Update this specific lab immediately when its data is ready
           setLabs(prevLabs => {
             const updatedLabs = prevLabs.map(lab => {
               if (lab.id === labId) {
@@ -431,16 +414,15 @@ export default function LabsOverview() {
                   machinesUp: status.machinesUp,
                   machinesDown: status.machinesDown,
                   lastUpdated: status.lastUpdated,
-                  status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-                  machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds), // Pass onlineMachineIds
+                  status: status.machinesUp > 0 ? "Available" as const : "Offline" as const,
+                  machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds),
                   isLoading: false,
-                  onlineMachineIds: status.onlineMachineIds // Store the list of online machines
+                  onlineMachineIds: status.onlineMachineIds
                 }
               }
               return lab
             })
             
-            // Update cache with the new data
             setLabsCache(updatedLabs)
             return updatedLabs
           })
@@ -453,9 +435,9 @@ export default function LabsOverview() {
               lab.id === labId ? { 
                 ...lab, 
                 isLoading: false, 
-                status: "Maintenance" as const,
+                status: "Offline" as const,
                 lastUpdated: 'Error',
-                onlineMachineIds: [] // Set empty array on error
+                onlineMachineIds: []
               } : lab
             )
             setLabsCache(updatedLabs)
@@ -464,7 +446,6 @@ export default function LabsOverview() {
         }
       })
       
-      // Wait for all labs to complete (for the success message)
       await Promise.allSettled(refreshPromises)
       
       showSuccessToast(
@@ -478,7 +459,6 @@ export default function LabsOverview() {
     }
   }
 
-  // UPDATED: Function to refresh a specific lab's data and update cache
   const refreshLabData = async (labId: string) => {
     setLabs(prevLabs => 
       prevLabs.map(lab => 
@@ -496,17 +476,16 @@ export default function LabsOverview() {
             machinesUp: status.machinesUp,
             machinesDown: status.machinesDown,
             lastUpdated: status.lastUpdated,
-            status: status.machinesUp > 0 ? "Available" as const : "Maintenance" as const,
-            machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds), // Pass onlineMachineIds
+            status: status.machinesUp > 0 ? "Available" as const : "Offline" as const,
+            machines: generateMachines(lab.id, lab.totalMachines, status.onlineMachineIds),
             isLoading: false,
-            onlineMachineIds: status.onlineMachineIds // Store the list of online machines
+            onlineMachineIds: status.onlineMachineIds
           }
         }
         return lab
       })
 
       setLabs(updatedLabs)
-      // Update cache with new data
       setLabsCache(updatedLabs)
       
     } catch (error) {
@@ -514,9 +493,9 @@ export default function LabsOverview() {
         lab.id === labId ? { 
           ...lab, 
           isLoading: false, 
-          status: "Maintenance" as const,
+          status: "Offline" as const,
           lastUpdated: 'Error',
-          onlineMachineIds: [] // Set empty array on error
+          onlineMachineIds: []
         } : lab
       )
       setLabs(updatedLabs)
@@ -525,7 +504,6 @@ export default function LabsOverview() {
   }
 
   const showSuccessToast = (title: string, description: string) => {
-    // Create a success toast notification
     const toastDiv = document.createElement('div')
     toastDiv.className = 'fixed top-4 right-4 bg-green-600 text-white p-4 rounded-lg shadow-lg z-50 max-w-md transform transition-all duration-300 ease-in-out'
     toastDiv.innerHTML = `
@@ -541,12 +519,10 @@ export default function LabsOverview() {
     `
     document.body.appendChild(toastDiv)
     
-    // Animate in
     setTimeout(() => {
       toastDiv.style.transform = 'translateX(0)'
     }, 100)
     
-    // Remove after 5 seconds
     setTimeout(() => {
       toastDiv.style.transform = 'translateX(100%)'
       setTimeout(() => {
@@ -568,7 +544,7 @@ export default function LabsOverview() {
         return "bg-green-500"
       case "In Use":
         return "bg-blue-500"
-      case "Maintenance":
+      case "Offline":
         return "bg-red-500"
       case "Loading":
         return "bg-gray-400"
@@ -583,7 +559,7 @@ export default function LabsOverview() {
         return <CheckCircle2 className="h-4 w-4" />
       case "In Use":
         return <Users className="h-4 w-4" />
-      case "Maintenance":
+      case "Offline":
         return <AlertTriangle className="h-4 w-4" />
       case "Loading":
         return <Loader2 className="h-4 w-4 animate-spin" />
@@ -593,12 +569,11 @@ export default function LabsOverview() {
   }
 
   const getAvailableMachines = (lab: Lab): Machine[] => {
-    if (lab.status === "Maintenance") return []
+    if (lab.status === "Offline") return []
 
     const currentlyBooked = lab.currentBooking?.studentsBooked || 0
     const workingMachines = lab.machines.filter((m) => m.isWorking && !m.assignedStudent)
 
-    // Skip machines that are already booked for current sessions
     return workingMachines.slice(currentlyBooked)
   }
 
@@ -612,7 +587,15 @@ export default function LabsOverview() {
   }
 
   const getTotalAvailableSeats = () => {
-    return labs.reduce((total, lab) => total + calculateAvailableSeats(lab), 0)
+    if (allocationStrategy === "select-manually") {
+      return labs
+        .filter(lab => selectedLabs.includes(lab.id))
+        .reduce((total, lab) => total + calculateAvailableSeats(lab), 0)
+    } else {
+      return labs
+        .filter(lab => lab.status !== "Offline")
+        .reduce((total, lab) => total + calculateAvailableSeats(lab), 0)
+    }
   }
 
   const parseStudentNumbers = (input: string): string[] => {
@@ -638,16 +621,12 @@ export default function LabsOverview() {
       const text = await file.text()
       const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
       
-      // Parse CSV - assuming student numbers are in first column
       const students = lines.map(line => {
-        // Handle comma-separated values, take first column
         const columns = line.split(',').map(col => col.trim().replace(/"/g, ''))
         return columns[0]
       }).filter(student => {
-        // Filter out empty values, headers, and non-numeric entries
         if (!student || student.length === 0) return false
         
-        // Skip common header variations (case insensitive)
         const lowerStudent = student.toLowerCase()
         const commonHeaders = [
           'student', 'student number', 'student_number', 'studentnumber', 
@@ -657,10 +636,8 @@ export default function LabsOverview() {
         ]
         if (commonHeaders.some(header => lowerStudent.includes(header))) return false
         
-        // Only accept entries that contain at least one digit (student numbers should be numeric)
         if (!/\d/.test(student)) return false
         
-        // Additional check: reject entries that are mostly text (more than 50% letters)
         const letterCount = (student.match(/[a-zA-Z]/g) || []).length
         const totalLength = student.length
         if (letterCount > totalLength * 0.5) return false
@@ -676,9 +653,7 @@ export default function LabsOverview() {
         return
       }
 
-      // Sort the students numerically for better organization
       const sortedStudents = students.sort((a, b) => {
-        // Extract numeric parts for proper sorting
         const aNum = a.match(/\d+/)?.[0] || a
         const bNum = b.match(/\d+/)?.[0] || b
         return aNum.localeCompare(bNum, undefined, { numeric: true })
@@ -703,8 +678,23 @@ export default function LabsOverview() {
     return parseStudentNumbers(studentNumbers)
   }
 
+  const handleLabSelection = (labId: string, isSelected: boolean) => {
+    if (isSelected) {
+      setSelectedLabs(prev => [...prev, labId])
+    } else {
+      setSelectedLabs(prev => prev.filter(id => id !== labId))
+    }
+  }
+
+  const toggleAllLabs = (selectAll: boolean) => {
+    if (selectAll) {
+      setSelectedLabs(labs.map(lab => lab.id))
+    } else {
+      setSelectedLabs([])
+    }
+  }
+
   const generateSeatingPlan = () => {
-    // Validate required fields
     if (!examType) {
       showErrorToast("Missing Information", "Please select an assessment type")
       return
@@ -720,6 +710,11 @@ export default function LabsOverview() {
       return
     }
 
+    if (allocationStrategy === "select-manually" && selectedLabs.length === 0) {
+      showErrorToast("No Labs Selected", "Please select at least one lab for allocation")
+      return
+    }
+
     const students = getCurrentStudentList()
     if (students.length === 0) {
       showErrorToast("No Students Found", "Please enter student numbers manually or import a CSV file")
@@ -730,7 +725,7 @@ export default function LabsOverview() {
     if (students.length > totalAvailable) {
       showErrorToast(
         "Insufficient Capacity",
-        `Only ${totalAvailable} seats available across all labs. Cannot allocate ${students.length} students.`
+        `Only ${totalAvailable} seats available in selected labs. Cannot allocate ${students.length} students.`
       )
       return
     }
@@ -738,9 +733,18 @@ export default function LabsOverview() {
     const newAllocations: StudentAllocation[] = []
     const updatedLabs = [...labs]
 
+    // Determine which labs to use based on allocation strategy
+    let labsToUse: Lab[]
+    if (allocationStrategy === "select-manually") {
+      labsToUse = updatedLabs.filter(lab => selectedLabs.includes(lab.id))
+    } else {
+      labsToUse = updatedLabs.filter(lab => lab.status !== "Offline")
+    }
+
     switch (allocationStrategy) {
       case "balanced":
-        const availableLabs = updatedLabs.filter((lab) => calculateAvailableSeats(lab) > 0)
+      case "select-manually": // Use balanced strategy for manual selection too
+        const availableLabs = labsToUse.filter((lab) => calculateAvailableSeats(lab) > 0)
         let labIndex = 0
 
         for (const student of students) {
@@ -780,7 +784,7 @@ export default function LabsOverview() {
         for (const student of students) {
           let allocated = false
 
-          for (const lab of updatedLabs) {
+          for (const lab of labsToUse) {
             const machine = getNextAvailableMachine(lab)
             if (machine) {
               machine.assignedStudent = student
@@ -807,7 +811,7 @@ export default function LabsOverview() {
         break
 
       case "preference":
-        const sortedLabs = [...updatedLabs].sort((a, b) => calculateAvailableSeats(b) - calculateAvailableSeats(a))
+        const sortedLabs = [...labsToUse].sort((a, b) => calculateAvailableSeats(b) - calculateAvailableSeats(a))
 
         for (const student of students) {
           let allocated = false
@@ -843,10 +847,8 @@ export default function LabsOverview() {
     setAllocations(newAllocations)
     setError("")
 
-    // Update cache with new allocation data
     setLabsCache(updatedLabs)
 
-    // Show success notification
     showSuccessToast(
       "Seating Plan Generated Successfully!",
       `${newAllocations.length} students allocated across ${
@@ -872,7 +874,6 @@ export default function LabsOverview() {
     setImportedStudents([])
     setError("")
 
-    // Update cache with cleared allocations
     setLabsCache(clearedLabs)
 
     showSuccessToast("Allocations Cleared", "All seat allocations have been cleared successfully")
@@ -884,12 +885,10 @@ export default function LabsOverview() {
       return
     }
 
-    // Sort allocations by student number for better organization
     const sortedAllocations = [...allocations].sort((a, b) => 
       a.studentNumber.localeCompare(b.studentNumber, undefined, { numeric: true })
     )
 
-    // Create PDF content as HTML string with table format
     const pdfContent = `
       <!DOCTYPE html>
       <html>
@@ -1038,7 +1037,6 @@ export default function LabsOverview() {
                 .sort((a, b) => a.studentNumber.localeCompare(b.studentNumber, undefined, { numeric: true }))
                 .map((allocation, index, sortedAllocations) => {
                   const lab = labs.find(l => l.id === allocation.labId)
-                  // Add lab header rows to separate different labs
                   const isFirstInLab = index === 0 || sortedAllocations[index - 1].labId !== allocation.labId
                   const labHeaderRow = isFirstInLab ? `
                     <tr>
@@ -1070,7 +1068,6 @@ export default function LabsOverview() {
       </html>
     `
 
-    // Create and trigger PDF download
     const blob = new Blob([pdfContent], { type: 'text/html' })
     const url = window.URL.createObjectURL(blob)
     const printWindow = window.open(url, '_blank')
@@ -1079,7 +1076,6 @@ export default function LabsOverview() {
       printWindow.onload = () => {
         printWindow.focus()
         printWindow.print()
-        // Clean up
         setTimeout(() => {
           printWindow.close()
           window.URL.revokeObjectURL(url)
@@ -1130,7 +1126,6 @@ export default function LabsOverview() {
               <h1 className="text-lg sm:text-2xl font-bold">TW Kambule Labs</h1>
             </div>
             
-            {/* Updated: Mobile-friendly refresh button */}
             <div className="flex items-center gap-2">
               <span className="hidden sm:block text-sm text-blue-100">
                 {getLabsCache().lastFetched > 0 && (
@@ -1167,7 +1162,6 @@ export default function LabsOverview() {
           </Alert>
         )}
 
-        {/* Cache Status Indicator - Mobile optimized */}
         {getLabsCache().isInitialized && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1182,7 +1176,6 @@ export default function LabsOverview() {
           </div>
         )}
 
-        {/* Seating Plan Generator - Mobile optimized */}
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
@@ -1190,11 +1183,10 @@ export default function LabsOverview() {
               Generate Seating Plan
             </CardTitle>
             <CardDescription className="text-sm">
-              Allocate students across all available labs. Total capacity: {getTotalAvailableSeats()} seats
+              Allocate students across available labs. Total capacity: {getTotalAvailableSeats()} seats
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
-            {/* Required Information Section - Mobile optimized */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
               <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2 text-sm sm:text-base">
                 <Calendar className="h-4 w-4" />
@@ -1245,9 +1237,66 @@ export default function LabsOverview() {
               </div>
             </div>
 
+            {/* NEW: Only show lab selection when manual strategy is selected */}
+            {allocationStrategy === "select-manually" && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+                <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2 text-sm sm:text-base">
+                  <Monitor className="h-4 w-4" />
+                  Select Labs for Allocation
+                </h4>
+                
+                <div className="flex justify-between items-center mb-3">
+                  <Label className="text-blue-900 text-sm">Available Labs</Label>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => toggleAllLabs(true)}
+                      className="text-xs h-8"
+                    >
+                      Select All
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => toggleAllLabs(false)}
+                      className="text-xs h-8"
+                    >
+                      Deselect All
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {labs.map((lab) => (
+                    <div key={lab.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`lab-${lab.id}`}
+                        checked={selectedLabs.includes(lab.id)}
+                        onCheckedChange={(checked) => 
+                          handleLabSelection(lab.id, checked as boolean)
+                        }
+                        disabled={lab.status === "Offline" || lab.isLoading}
+                      />
+                      <Label 
+                        htmlFor={`lab-${lab.id}`} 
+                        className={`text-sm font-normal ${
+                          lab.status === "Offline" || lab.isLoading ? "text-gray-400" : ""
+                        }`}
+                      >
+                        {lab.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {selectedLabs.length} of {labs.length} labs selected
+                </p>
+              </div>
+            )}
+
             <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
               <div className="space-y-4">
-                {/* Student Input Method Selection - Mobile optimized */}
                 <div>
                   <Label className="text-sm font-medium">Student Numbers Input Method</Label>
                   <div className="flex gap-2 mt-2">
@@ -1280,7 +1329,6 @@ export default function LabsOverview() {
                   </div>
                 </div>
 
-                {/* Manual Input - Mobile optimized */}
                 {inputMethod === "manual" && (
                   <div>
                     <Label htmlFor="students" className="text-sm">Student Numbers <span className="text-red-500">*</span></Label>
@@ -1298,7 +1346,6 @@ export default function LabsOverview() {
                   </div>
                 )}
 
-                {/* CSV Import - Mobile optimized */}
                 {inputMethod === "csv" && (
                   <div className="space-y-3">
                     <Label htmlFor="csvFile" className="text-sm">Upload CSV File <span className="text-red-500">*</span></Label>
@@ -1365,6 +1412,7 @@ export default function LabsOverview() {
                         <SelectItem value="balanced">Balanced - Distribute evenly</SelectItem>
                         <SelectItem value="fill-first">Fill First - Fill labs in order</SelectItem>
                         <SelectItem value="preference">Preference - Prefer larger labs</SelectItem>
+                        <SelectItem value="select-manually">Select Labs Manually</SelectItem>
                       </SelectContent>
                     </Select>
                   </Tooltip>
@@ -1392,13 +1440,12 @@ export default function LabsOverview() {
                   </div>
                 </div>
 
-                {/* Mobile-optimized action buttons */}
                 <div className="space-y-2 sm:space-y-0 sm:flex sm:gap-2">
                   <Tooltip content="Create seating plan with current settings and student list">
                     <Button 
                       onClick={generateSeatingPlan} 
                       className="w-full sm:flex-1 text-sm" 
-                      disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0}
+                      disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0 || (allocationStrategy === "select-manually" && selectedLabs.length === 0)}
                     >
                       <UserPlus className="h-4 w-4 mr-2" />
                       Generate Plan
@@ -1427,15 +1474,15 @@ export default function LabsOverview() {
           </CardContent>
         </Card>
 
-        {/* Labs Grid - Mobile optimized */}
         <div className="grid gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {labs.map((lab) => {
             const availableSeats = calculateAvailableSeats(lab)
             const allocatedCount = lab.allocatedStudents.length
             const currentlyBooked = lab.currentBooking?.studentsBooked || 0
+            const isSelected = selectedLabs.includes(lab.id) && allocationStrategy === "select-manually"
 
             return (
-              <Card key={lab.id} className="relative">
+              <Card key={lab.id} className={`relative ${isSelected ? 'ring-2 ring-blue-500' : ''}`}>
                 <CardHeader className="pb-3 sm:pb-6">
                   <div className="flex justify-between items-start gap-2">
                     <div className="min-w-0 flex-1">
@@ -1464,7 +1511,25 @@ export default function LabsOverview() {
                 </CardHeader>
 
                 <CardContent className="space-y-3 sm:space-y-4">
-                  {/* Machine Status - Mobile optimized */}
+                  {allocationStrategy === "select-manually" && (
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`select-${lab.id}`}
+                        checked={isSelected}
+                        onCheckedChange={(checked) => 
+                          handleLabSelection(lab.id, checked as boolean)
+                        }
+                        disabled={lab.status === "Offline" || lab.isLoading}
+                      />
+                      <Label 
+                        htmlFor={`select-${lab.id}`} 
+                        className="text-sm font-medium"
+                      >
+                        Include in seating plan
+                      </Label>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Machines Online</span>
@@ -1484,7 +1549,6 @@ export default function LabsOverview() {
                     )}
                   </div>
 
-                  {/* Seat Allocation Summary - Mobile optimized */}
                   <div className="bg-gray-50 p-3 sm:p-4 rounded-lg space-y-3">
                     <h4 className="font-medium text-sm">Seat Status</h4>
 
@@ -1550,7 +1614,6 @@ export default function LabsOverview() {
           })}
         </div>
 
-        {/* Allocation Results - Mobile optimized */}
         {allocations.length > 0 && (
           <Card>
             <CardHeader className="pb-3 sm:pb-6">
