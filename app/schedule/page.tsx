@@ -992,7 +992,7 @@ export default function SchedulePage() {
         if (checkInStatus.sessionStatus === 'completed') {
           return (
             <Button disabled className="flex-1 bg-gray-500">
-              Session Completed
+              Setup Completed
             </Button>
           );
         }
@@ -1022,7 +1022,7 @@ export default function SchedulePage() {
               ) : (
                 <>
                   <LogOut className="h-3 w-3 mr-1" />
-                  Complete Session
+                  Complete Setup
                 </>
               )}
             </Button>
@@ -1602,7 +1602,7 @@ export default function SchedulePage() {
                                   )}
                                   {sessionCheckIn.sessionStatus === 'completed' && (
                                     <Badge className="bg-gray-600 text-white">
-                                      Completed
+                                      Setup Completed
                                     </Badge>
                                   )}
                                   {sessionCheckIn.isCheckedIn && sessionCheckIn.sessionStatus === 'active' && (
