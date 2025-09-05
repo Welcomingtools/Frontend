@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2, RefreshCw } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { supabase } from "@/lib/supabase" // Import your Supabase client
 
 // Server configuration - SAME AS LabStatusPage
 const SERVER_BASE_URL = "http://10.100.15.252:3001"
@@ -132,6 +133,7 @@ export default function LabsOverview() {
   const [importedStudents, setImportedStudents] = useState<string[]>([])
   const [inputMethod, setInputMethod] = useState<"manual" | "csv">("manual")
   const [selectedLabs, setSelectedLabs] = useState<string[]>([])
+  const [isSaving, setIsSaving] = useState(false)
 
   // Lab capacity data - SAME AS LabStatusPage
   const labCapacities: Record<string, number> = {
@@ -144,6 +146,85 @@ export default function LabsOverview() {
     "110": 50,
     "111": 50,
   }
+
+  // Function to save seating plan to Supabase
+  // Function to save seating plan to Supabase
+// Function to save seating plan to Supabase
+// Function to save seating plan to Supabase
+const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
+  setIsSaving(true)
+  try {
+    // Get the current user session
+    const userSessionStr = sessionStorage.getItem('userSession')
+    if (!userSessionStr) {
+      throw new Error("User not authenticated")
+    }
+    
+    const userSession = JSON.parse(userSessionStr)
+    const userEmail = userSession.email
+    
+    if (!userEmail) {
+      throw new Error("User email not found in session")
+    }
+
+    // Fetch the user's database ID using their email
+    const { data: userData, error: userError } = await supabase
+      .from('team_members')
+      .select('id')
+      .eq('email', userEmail)
+      .single()
+
+    if (userError) {
+      console.error('Error fetching user data:', userError)
+      throw new Error(`Failed to find user in database: ${userError.message}`)
+    }
+
+    if (!userData || !userData.id) {
+      throw new Error("User not found in team_members table")
+    }
+
+    const adminId = userData.id
+    console.log('Found admin ID:', adminId)
+
+    // Prepare data for insertion - REMOVED machine_id completely
+    const seatingData = allocations.map(allocation => ({
+      admin_id: adminId,
+      lab_id: allocation.labId,
+      student_number: allocation.studentNumber,
+      assessment_type: examType,
+      assessment_name: examName,
+      assessment_date: examDate,
+      //row: allocation.row,
+      //position: allocation.position
+    }))
+
+    console.log('Sample seating data:', seatingData[0]) // Debug log
+
+    // Insert data into Supabase
+    const { data, error: supabaseError } = await supabase
+      .from('seating')
+      .insert(seatingData)
+      .select()
+
+    if (supabaseError) {
+      console.error('Supabase error details:', supabaseError)
+      throw new Error(supabaseError.message)
+    }
+
+    console.log('Successfully inserted seating data:', data)
+    showSuccessToast(
+      "Seating Plan Saved", 
+      "Seating plan has been successfully saved to the database"
+    )
+    return data
+  } catch (error: any) {
+    console.error("Error saving seating plan:", error)
+    showErrorToast("Save Failed", error.message || "Failed to save seating plan to database")
+    throw error
+  } finally {
+    setIsSaving(false)
+  }
+}
 
   // NEW: Function to fetch machine status from server
   const fetchLabMachineStatus = async (labId: string): Promise<{ 
@@ -694,7 +775,7 @@ export default function LabsOverview() {
     }
   }
 
-  const generateSeatingPlan = () => {
+  const generateSeatingPlan = async () => {
     if (!examType) {
       showErrorToast("Missing Information", "Please select an assessment type")
       return
@@ -849,12 +930,25 @@ export default function LabsOverview() {
 
     setLabsCache(updatedLabs)
 
-    showSuccessToast(
-      "Seating Plan Generated Successfully!",
-      `${newAllocations.length} students allocated across ${
-        new Set(newAllocations.map((a) => a.labId)).size
-      } labs. You can now export to PDF.`
-    )
+    // Save to database
+    try {
+      await saveSeatingPlanToDatabase(newAllocations)
+      showSuccessToast(
+        "Seating Plan Generated and Saved Successfully!",
+        `${newAllocations.length} students allocated across ${
+          new Set(newAllocations.map((a) => a.labId)).size
+        } labs. Data has been saved to the database. You can now export to PDF.`
+      )
+    } catch (error) {
+      // Error is already handled in saveSeatingPlanToDatabase
+      // Still show success for generation but mention database save failed
+      showSuccessToast(
+        "Seating Plan Generated!",
+        `${newAllocations.length} students allocated across ${
+          new Set(newAllocations.map((a) => a.labId)).size
+        } labs. However, saving to database failed. You can still export to PDF.`
+      )
+    }
   }
 
   const clearAllAllocations = () => {
@@ -1445,10 +1539,14 @@ export default function LabsOverview() {
                     <Button 
                       onClick={generateSeatingPlan} 
                       className="w-full sm:flex-1 text-sm" 
-                      disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0 || (allocationStrategy === "select-manually" && selectedLabs.length === 0)}
+                      disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0 || (allocationStrategy === "select-manually" && selectedLabs.length === 0) || isSaving}
                     >
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Generate Plan
+                      {isSaving ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <UserPlus className="h-4 w-4 mr-2" />
+                      )}
+                      {isSaving ? "Saving..." : "Generate Plan"}
                     </Button>
                   </Tooltip>
                   

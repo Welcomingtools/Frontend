@@ -1257,7 +1257,7 @@ export default function SchedulePage() {
                         const duration = timeValidation.duration || 0
                         const hours = duration / 60
                         
-                        if (timeValidation.isValid && duration > 240) {
+                        /*if (timeValidation.isValid && duration > 240) {
                           return (
                             <Alert className="border-orange-200 bg-orange-50">
                               <AlertCircle className="h-4 w-4 text-orange-600" />
@@ -1277,7 +1277,7 @@ export default function SchedulePage() {
                               )}
                             </p>
                           )
-                        }
+                        }*/
                         return null
                       })()}
                     </div>
