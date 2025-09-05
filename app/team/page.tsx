@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2 } from "lucide-react"
+import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2, CheckCircle } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { toast } from "sonner"
 
 type Member = {
   id: string
@@ -80,6 +81,8 @@ export default function TeamPage() {
   const [reportOpen, setReportOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<Member | null>(null)
   const [reportForm, setReportForm] = useState({ reason: "", details: "" })
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false)
+  const [reportSubmissionStatus, setReportSubmissionStatus] = useState<'idle' | 'success' | 'error'>('idle')
   
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
@@ -399,54 +402,69 @@ export default function TeamPage() {
     setReportTarget(member)
     setReportForm({ reason: "", details: "" })
     setReportError(null)
+    setReportSubmissionStatus('idle')
     setReportOpen(true)
   }
 
-    const submitReport = async () => {
+  const submitReport = async () => {
     if (!reportTarget || !userSession) return
 
     if (!reportForm.reason || reportForm.reason.trim() === "") {
       setReportError("Please select a reason before submitting.")
       return
     }
-    setReportError(null) // clear error once valid
+    setReportError(null)
+    setIsSubmittingReport(true)
+    setReportSubmissionStatus('idle')
 
     try {
- // replace your insert with this, right before closing the dialog
-  const { data, error } = await supabase
-    .from("user_reports")
-    .insert([
-      {
-        reported_user_id: reportTarget.id,
-        reported_user_name: reportTarget.name,
-        reported_user_email: reportTarget.email.toLowerCase().trim(),
-        reported_user_role: reportTarget.role,
-        reporter_email: userSession.email.toLowerCase().trim(),
-        reporter_name: userSession.name,
-        reporter_role: userSession.role,
-        reason: reportForm.reason,
-        details: reportForm.details,
-        status: "Submitted",
-      },
-    ])
-    .select()
-    .single()
+      // Show immediate feedback
+      toast.info("Submitting your report...")
 
-  if (error) {
-    console.error("Report failed:", error)
-    alert("Failed to submit report: " + error.message)
-    return
-  }
+      const { data, error } = await supabase
+        .from("user_reports")
+        .insert([
+          {
+            reported_user_id: reportTarget.id,
+            reported_user_name: reportTarget.name,
+            reported_user_email: reportTarget.email.toLowerCase().trim(),
+            reported_user_role: reportTarget.role,
+            reporter_email: userSession.email.toLowerCase().trim(),
+            reporter_name: userSession.name,
+            reporter_role: userSession.role,
+            reason: reportForm.reason,
+            details: reportForm.details,
+            status: "Submitted",
+          },
+        ])
+        .select()
+        .single()
 
-// 👉 instant UI update
-if (data) setReports(prev => [data as Report, ...prev])
+      if (error) {
+        console.error("Report failed:", error)
+        setReportSubmissionStatus('error')
+        toast.error("Failed to submit report: " + error.message)
+        return
+      }
 
-
-      setReportOpen(false)
-      alert("Report submitted. Thank you!")
+      if (data) {
+        setReports(prev => [data as Report, ...prev])
+        setReportSubmissionStatus('success')
+        toast.success("Report submitted successfully! Thank you for your feedback.")
+        
+        // Auto-close dialog after showing success message
+        setTimeout(() => {
+          setReportOpen(false)
+          setReportForm({ reason: "", details: "" })
+          setReportSubmissionStatus('idle')
+        }, 5000)
+      }
     } catch (e) {
       console.error("Report failed:", e)
-      alert("Failed to submit report.")
+      setReportSubmissionStatus('error')
+      toast.error("Failed to submit report. Please try again.")
+    } finally {
+      setIsSubmittingReport(false)
     }
   }
 
@@ -599,7 +617,7 @@ if (data) setReports(prev => [data as Report, ...prev])
                     <Input
                       id="name"
                       value={newMember.name}
-                      onChange={e => setNewMember({ ...newMember, name: e.target.value })}
+                      onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
                       placeholder="Enter full name"
                     />
                   </div>
@@ -609,13 +627,13 @@ if (data) setReports(prev => [data as Report, ...prev])
                       id="email"
                       type="email"
                       value={newMember.email}
-                      onChange={e => setNewMember({ ...newMember, email: e.target.value })}
+                      onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
                       placeholder="Enter email address"
                     />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="role">Role</Label>
-                    <Select value={newMember.role} onValueChange={value => setNewMember({ ...newMember, role: value })}>
+                    <Select value={newMember.role} onValueChange={(value) => setNewMember({ ...newMember, role: value })}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
@@ -661,7 +679,7 @@ if (data) setReports(prev => [data as Report, ...prev])
               </div>
             ) : (
               <div className="space-y-4">
-                {displayedMembers.map(member => (
+                {displayedMembers.map((member) => (
                   <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
                     <div className="flex items-center gap-4">
                       <Avatar className="h-10 w-10">
@@ -705,7 +723,7 @@ if (data) setReports(prev => [data as Report, ...prev])
                                   <Input
                                     id="edit-name"
                                     value={editMember.name}
-                                    onChange={e => setEditMember({ ...editMember, name: e.target.value })}
+                                    onChange={(e) => setEditMember({ ...editMember, name: e.target.value })}
                                   />
                                 </div>
                                 <div className="grid gap-2">
@@ -714,14 +732,14 @@ if (data) setReports(prev => [data as Report, ...prev])
                                     id="edit-email"
                                     type="email"
                                     value={editMember.email}
-                                    onChange={e => setEditMember({ ...editMember, email: e.target.value })}
+                                    onChange={(e) => setEditMember({ ...editMember, email: e.target.value })}
                                   />
                                 </div>
                                 <div className="grid gap-2">
                                   <Label htmlFor="edit-role">Role</Label>
                                   <Select
                                     value={editMember.role}
-                                    onValueChange={value => setEditMember({ ...editMember, role: value })}
+                                    onValueChange={(value) => setEditMember({ ...editMember, role: value })}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder="Select role" />
@@ -787,7 +805,7 @@ if (data) setReports(prev => [data as Report, ...prev])
               </p>
             ) : (
               <div className="space-y-3">
-                {reports.map(r => (
+                {reports.map((r) => (
                   <div
                     key={r.id}
                     className="flex items-center justify-between border rounded-md p-3"
@@ -821,7 +839,7 @@ if (data) setReports(prev => [data as Report, ...prev])
           </CardContent>
         </Card>
 
-        {/* Report Creation Dialog */}
+        {/* Report Creation Dialog with Enhanced UX */}
         <Dialog open={reportOpen} onOpenChange={setReportOpen}>
           <DialogContent>
             <DialogHeader>
@@ -829,12 +847,32 @@ if (data) setReports(prev => [data as Report, ...prev])
               <DialogDescription>Tell us what's wrong. This will notify admins to review.</DialogDescription>
             </DialogHeader>
 
+            {/* Success/Error States */}
+            {reportSubmissionStatus === 'success' && (
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-800">
+                  Report submitted successfully! Your feedback has been recorded and will be reviewed by administrators.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {reportSubmissionStatus === 'error' && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to submit report. Please try again or contact support if the problem persists.
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="reason">Reason <span className="text-red-500">*</span></Label>
                 <Select
                   value={reportForm.reason}
                   onValueChange={(v) => setReportForm(p => ({ ...p, reason: v }))}
+                  disabled={isSubmittingReport || reportSubmissionStatus === 'success'}
                 >
                   <SelectTrigger id="reason" aria-invalid={!!reportError}>
                     <SelectValue placeholder="Select a reason" />
@@ -853,17 +891,40 @@ if (data) setReports(prev => [data as Report, ...prev])
                 <Label htmlFor="details">Details (optional)</Label>
                 <textarea
                   id="details"
-                  className="min-h-[120px] border rounded-md p-2"
+                  className="min-h-[120px] border rounded-md p-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   value={reportForm.details}
                   onChange={(e) => setReportForm(p => ({ ...p, details: e.target.value }))}
                   placeholder="Add any context that will help admins review"
+                  disabled={isSubmittingReport || reportSubmissionStatus === 'success'}
                 />
               </div>
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button>
-              <Button onClick={submitReport}>Submit Report</Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setReportOpen(false)}
+                disabled={isSubmittingReport}
+              >
+                {reportSubmissionStatus === 'success' ? 'Close' : 'Cancel'}
+              </Button>
+              
+              {reportSubmissionStatus !== 'success' && (
+                <Button 
+                  onClick={submitReport} 
+                  disabled={isSubmittingReport || !reportForm.reason}
+                  className="min-w-[140px]"
+                >
+                  {isSubmittingReport ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Report'
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
