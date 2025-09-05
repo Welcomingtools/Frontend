@@ -457,7 +457,7 @@ export default function TeamPage() {
           setReportOpen(false)
           setReportForm({ reason: "", details: "" })
           setReportSubmissionStatus('idle')
-        }, 5000)
+        }, 1500)
       }
     } catch (e) {
       console.error("Report failed:", e)
@@ -773,12 +773,21 @@ export default function TeamPage() {
                         </Button>
                       </div>
                     )}
-                    {/* Actions for non-admins: Report only */}
-                    {!isAdmin && (
+                    {/* Actions for non-admins: Report only (exclude self) */}
+                    {!isAdmin && userSession?.email.toLowerCase().trim() !== member.email.toLowerCase().trim() && (
                       <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" className="border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10" onClick={() => openReport(member)}>
                           Report
                         </Button>
+                      </div>
+                    )}
+                    
+                    {/* Show message for current user */}
+                    {!isAdmin && userSession?.email.toLowerCase().trim() === member.email.toLowerCase().trim() && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-muted-foreground">
+                          You
+                        </Badge>
                       </div>
                     )}
                   </div>
