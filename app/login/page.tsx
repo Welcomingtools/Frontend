@@ -27,7 +27,7 @@ export default function LoginPage() {
     try {
       // Query the team_members table in Supabase
       const { data, error: supabaseError } = await supabase
-        .from('team_members')
+        .from('user')
         .select('*')
         .eq('email', email.toLowerCase().trim())
         .single()
@@ -57,6 +57,7 @@ export default function LoginPage() {
         const userSession = {
           email: data.email,
           name: data.name,
+          surname:data.surname,
           role: data.role,
           loginTime: new Date().toISOString(),
           accountType: "team_member"

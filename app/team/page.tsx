@@ -27,6 +27,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 type Member = {
   id: string
   name: string
+  surname: string
   email: string
   role: string
   status: "Active" | "Inactive"
@@ -148,7 +149,7 @@ export default function TeamPage() {
         // For non-admin users, we'll filter by role in the frontend
         // since RLS policies might not allow them to query all data
         const { data, error } = await supabase
-          .from('team_members')
+          .from('user')
           .select('*')
 
         if (error) {
@@ -165,6 +166,7 @@ export default function TeamPage() {
         const members = data.map(row => ({
           id: row.id,
           name: row.name,
+          surname: row.surname,
           email: row.email,
           role: row.role,
           status: row.status as "Active" | "Inactive",
@@ -194,7 +196,7 @@ export default function TeamPage() {
     const fetchReports = async () => {
       try {
         let query = supabase
-          .from('user_reports')
+          .from('incident')
           .select('*')
 
         if (!isAdmin) {
@@ -232,7 +234,7 @@ export default function TeamPage() {
           {
             event: '*',
             schema: 'public',
-            table: 'user_reports'
+            table: 'incident'
           },
           (payload) => {
             console.log('Reports changed:', payload)
@@ -249,7 +251,7 @@ export default function TeamPage() {
           {
             event: '*',
             schema: 'public',
-            table: 'user_reports',
+            table: 'incident',
             filter: `reporter_email=eq.${userEmail}`
           },
           (payload) => {
@@ -276,7 +278,7 @@ export default function TeamPage() {
 
     try {
       const { data, error } = await supabase
-        .from('team_members')
+        .from('user')
         .insert([{
           name: newMember.name,
           email: newMember.email,
@@ -296,7 +298,8 @@ export default function TeamPage() {
       if (data && data[0]) {
         const newMemberData = {
           id: data[0].id,
-          name: data[0].name,
+          name: data[0].surname,
+          surname: data[0].name,
           email: data[0].email,
           role: data[0].role,
           status: data[0].status as "Active" | "Inactive",
@@ -322,7 +325,7 @@ export default function TeamPage() {
 
     try {
       const { error } = await supabase
-        .from('team_members')
+        .from('user')
         .update({
           name: editMember.name,
           email: editMember.email,
@@ -350,7 +353,7 @@ export default function TeamPage() {
     
     try {
       const { error } = await supabase
-        .from('team_members')
+        .from('user')
         .delete()
         .eq('id', id)
 
@@ -376,7 +379,7 @@ export default function TeamPage() {
     
     try {
       const { error } = await supabase
-        .from('team_members')
+        .from('user')
         .update({ status: newStatus })
         .eq('id', id)
 
@@ -405,7 +408,7 @@ export default function TeamPage() {
     
     try {
       const { error } = await supabase
-        .from('user_reports')
+        .from('incident')
         .insert([{
           reported_user_id: reportTarget.id,
           reported_user_name: reportTarget.name,
@@ -453,7 +456,7 @@ export default function TeamPage() {
       }
 
       const { error } = await supabase
-        .from('user_reports')
+        .from('incident')
         .update(updateData)
         .eq('id', activeReport.id)
 
@@ -689,6 +692,14 @@ export default function TeamPage() {
                                     id="edit-name"
                                     value={editMember.name}
                                     onChange={e => setEditMember({ ...editMember, name: e.target.value })}
+                                  />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label htmlFor="edit-name">Surname</Label>
+                                  <Input
+                                    id="edit-name"
+                                    value={editMember.name}
+                                    onChange={e => setEditMember({ ...editMember, surname: e.target.value })}
                                   />
                                 </div>
                                 <div className="grid gap-2">
