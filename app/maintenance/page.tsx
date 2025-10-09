@@ -415,9 +415,17 @@ export default function MaintenancePage() {
           resolved_by: null,
         })
         .select()
+        
 
       if (error) {
-        throw error
+        console.error("Supabase insert error:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: (error as any).code,
+        });
+        setValidationErrors({ general: error.message || "Failed to create issue." });
+        return;
       }
 
       // Show success message
@@ -443,8 +451,9 @@ export default function MaintenancePage() {
       }
 
     } catch (err) {
-      console.error("Error creating issue:", err)
-      setValidationErrors({ general: "Failed to create issue. Please try again." })
+      const e = err as any;
+       console.error("Error creating issue:", e?.message ?? e?.error_description ?? JSON.stringify(e));
+      setValidationErrors({ general: "Failed to create issue. Please try again." });
     } finally {
       setIsSubmitting(false)
     }

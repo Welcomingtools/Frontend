@@ -455,16 +455,16 @@ export default function TeamPage() {
       setReportError("Please select a reason before submitting.")
       return
     }
+
     setReportError(null)
     setIsSubmittingReport(true)
-    setReportSubmissionStatus('idle')
+    setReportSubmissionStatus("idle")
 
     try {
-      // Show immediate feedback
       toast.info("Submitting your report...")
 
       const { data, error } = await supabase
-        .from("user_reports")
+        .from("incident")
         .insert([
           {
             reported_user_id: reportTarget.id,
@@ -480,51 +480,35 @@ export default function TeamPage() {
           },
         ])
         .select()
-        .single()
-    
-    try {
-      const { error } = await supabase
-        .from('incident')
-        .insert([{
-          reported_user_id: reportTarget.id,
-          reported_user_name: reportTarget.name,
-          reported_user_email: reportTarget.email.toLowerCase().trim(),
-          reported_user_role: reportTarget.role,
-          reporter_email: userSession.email.toLowerCase().trim(),
-          reporter_name: userSession.name,
-          reporter_role: userSession.role,
-          reason: reportForm.reason,
-          details: reportForm.details,
-          status: "Submitted"
-        }])
+        .single();
 
       if (error) {
         console.error("Report failed:", error)
-        setReportSubmissionStatus('error')
+        setReportSubmissionStatus("error")
         toast.error("Failed to submit report: " + error.message)
         return
       }
 
       if (data) {
         setReports(prev => [data as Report, ...prev])
-        setReportSubmissionStatus('success')
+        setReportSubmissionStatus("success")
         toast.success("Report submitted successfully! Thank you for your feedback.")
-        
-        // Auto-close dialog after showing success message
+
         setTimeout(() => {
           setReportOpen(false)
           setReportForm({ reason: "", details: "" })
-          setReportSubmissionStatus('idle')
+          setReportSubmissionStatus("idle")
         }, 1500)
       }
     } catch (e) {
       console.error("Report failed:", e)
-      setReportSubmissionStatus('error')
+      setReportSubmissionStatus("error")
       toast.error("Failed to submit report. Please try again.")
     } finally {
       setIsSubmittingReport(false)
     }
   }
+
 
   const openReportDialog = (r: Report) => {
     setActiveReport(r)
