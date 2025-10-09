@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2 } from "lucide-react"
+import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2, CheckCircle } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
@@ -25,6 +25,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { createClient } from "@supabase/supabase-js";
 
+import { toast } from "sonner"
 
 type Member = {
   id: string
@@ -84,7 +85,9 @@ export default function TeamPage() {
 
   const [reportOpen, setReportOpen] = useState(false)
   const [reportTarget, setReportTarget] = useState<Member | null>(null)
-  const [reportForm, setReportForm] = useState({ reason: "Incorrect role", details: "" })
+  const [reportForm, setReportForm] = useState({ reason: "", details: "" })
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false)
+  const [reportSubmissionStatus, setReportSubmissionStatus] = useState<'idle' | 'success' | 'error'>('idle')
   
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
@@ -109,6 +112,7 @@ export default function TeamPage() {
 
   // Local form for editing
   const [reportEdit, setReportEdit] = useState({ reason: "", details: "", status: "Submitted" as Report["status"] })
+  const [reportError, setReportError] = useState<string | null>(null)
 
   // Date formatter
   const fmtDate = (dateStr: string) => {
@@ -438,12 +442,45 @@ export default function TeamPage() {
   // Reporting feature
   const openReport = (member: Member) => {
     setReportTarget(member)
-    setReportForm({ reason: "Incorrect role", details: "" })
+    setReportForm({ reason: "", details: "" })
+    setReportError(null)
+    setReportSubmissionStatus('idle')
     setReportOpen(true)
   }
 
   const submitReport = async () => {
     if (!reportTarget || !userSession) return
+
+    if (!reportForm.reason || reportForm.reason.trim() === "") {
+      setReportError("Please select a reason before submitting.")
+      return
+    }
+    setReportError(null)
+    setIsSubmittingReport(true)
+    setReportSubmissionStatus('idle')
+
+    try {
+      // Show immediate feedback
+      toast.info("Submitting your report...")
+
+      const { data, error } = await supabase
+        .from("user_reports")
+        .insert([
+          {
+            reported_user_id: reportTarget.id,
+            reported_user_name: reportTarget.name,
+            reported_user_email: reportTarget.email.toLowerCase().trim(),
+            reported_user_role: reportTarget.role,
+            reporter_email: userSession.email.toLowerCase().trim(),
+            reporter_name: userSession.name,
+            reporter_role: userSession.role,
+            reason: reportForm.reason,
+            details: reportForm.details,
+            status: "Submitted",
+          },
+        ])
+        .select()
+        .single()
     
     try {
       const { error } = await supabase
@@ -463,15 +500,29 @@ export default function TeamPage() {
 
       if (error) {
         console.error("Report failed:", error)
-        alert("Failed to submit report: " + error.message)
+        setReportSubmissionStatus('error')
+        toast.error("Failed to submit report: " + error.message)
         return
       }
 
-      setReportOpen(false)
-      alert("Report submitted. Thank you!")
+      if (data) {
+        setReports(prev => [data as Report, ...prev])
+        setReportSubmissionStatus('success')
+        toast.success("Report submitted successfully! Thank you for your feedback.")
+        
+        // Auto-close dialog after showing success message
+        setTimeout(() => {
+          setReportOpen(false)
+          setReportForm({ reason: "", details: "" })
+          setReportSubmissionStatus('idle')
+        }, 1500)
+      }
     } catch (e) {
       console.error("Report failed:", e)
-      alert("Failed to submit report.")
+      setReportSubmissionStatus('error')
+      toast.error("Failed to submit report. Please try again.")
+    } finally {
+      setIsSubmittingReport(false)
     }
   }
 
@@ -576,7 +627,7 @@ export default function TeamPage() {
               <div className="pt-4">
                 <Button asChild className="w-full">
                   <Link href="/dashboard">
-                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
                     Return to Dashboard
                   </Link>
                 </Button>
@@ -594,9 +645,9 @@ export default function TeamPage() {
       <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild className="text-white">
+            <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
               <Link href="/dashboard">
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
               </Link>
             </Button>
             <div>
@@ -656,13 +707,13 @@ export default function TeamPage() {
                       id="email"
                       type="email"
                       value={newMember.email}
-                      onChange={e => setNewMember({ ...newMember, email: e.target.value })}
+                      onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
                       placeholder="Enter email address"
                     />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="role">Role</Label>
-                    <Select value={newMember.role} onValueChange={value => setNewMember({ ...newMember, role: value })}>
+                    <Select value={newMember.role} onValueChange={(value) => setNewMember({ ...newMember, role: value })}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
@@ -727,7 +778,7 @@ export default function TeamPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {displayedMembers.map(member => (
+                {displayedMembers.map((member) => (
                   <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
                     <div className="flex items-center gap-4">
                       <Avatar className="h-10 w-10">
@@ -788,14 +839,14 @@ export default function TeamPage() {
                                     id="edit-email"
                                     type="email"
                                     value={editMember.email}
-                                    onChange={e => setEditMember({ ...editMember, email: e.target.value })}
+                                    onChange={(e) => setEditMember({ ...editMember, email: e.target.value })}
                                   />
                                 </div>
                                 <div className="grid gap-2">
                                   <Label htmlFor="edit-role">Role</Label>
                                   <Select
                                     value={editMember.role}
-                                    onValueChange={value => setEditMember({ ...editMember, role: value })}
+                                    onValueChange={(value) => setEditMember({ ...editMember, role: value })}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder="Select role" />
@@ -829,12 +880,21 @@ export default function TeamPage() {
                         </Button>
                       </div>
                     )}
-                    {/* Actions for non-admins: Report only */}
-                    {!isAdmin && (
+                    {/* Actions for non-admins: Report only (exclude self) */}
+                    {!isAdmin && userSession?.email.toLowerCase().trim() !== member.email.toLowerCase().trim() && (
                       <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" className="border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10" onClick={() => openReport(member)}>
                           Report
                         </Button>
+                      </div>
+                    )}
+                    
+                    {/* Show message for current user */}
+                    {!isAdmin && userSession?.email.toLowerCase().trim() === member.email.toLowerCase().trim() && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-muted-foreground">
+                          You
+                        </Badge>
                       </div>
                     )}
                   </div>
@@ -861,7 +921,7 @@ export default function TeamPage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {reports.map(r => (
+                {reports.map((r) => (
                   <div
                     key={r.id}
                     className="flex items-center justify-between border rounded-md p-3"
@@ -895,7 +955,7 @@ export default function TeamPage() {
           </CardContent>
         </Card>
 
-        {/* Report Creation Dialog */}
+        {/* Report Creation Dialog with Enhanced UX */}
         <Dialog open={reportOpen} onOpenChange={setReportOpen}>
           <DialogContent>
             <DialogHeader>
@@ -903,40 +963,84 @@ export default function TeamPage() {
               <DialogDescription>Tell us what's wrong. This will notify admins to review.</DialogDescription>
             </DialogHeader>
 
+            {/* Success/Error States */}
+            {reportSubmissionStatus === 'success' && (
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-800">
+                  Report submitted successfully! Your feedback has been recorded and will be reviewed by administrators.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {reportSubmissionStatus === 'error' && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to submit report. Please try again or contact support if the problem persists.
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="reason">Reason</Label>
+                <Label htmlFor="reason">Reason <span className="text-red-500">*</span></Label>
                 <Select
                   value={reportForm.reason}
                   onValueChange={(v) => setReportForm(p => ({ ...p, reason: v }))}
+                  disabled={isSubmittingReport || reportSubmissionStatus === 'success'}
                 >
-                  <SelectTrigger id="reason">
+                  <SelectTrigger id="reason" aria-invalid={!!reportError}>
                     <SelectValue placeholder="Select a reason" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Negligence">Negligence</SelectItem>
-                    <SelectItem value="User left team">User left team</SelectItem>
+                    <SelectItem value="Lateness/Absenteeism">Lateness/Absenteeism</SelectItem>
                     <SelectItem value="Misconduct/abuse">Misconduct/abuse</SelectItem>
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
+                {reportError && <p className="text-sm text-red-500">{reportError}</p>}
               </div>
 
               <div className="grid gap-2">
                 <Label htmlFor="details">Details (optional)</Label>
                 <textarea
                   id="details"
-                  className="min-h-[120px] border rounded-md p-2"
+                  className="min-h-[120px] border rounded-md p-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   value={reportForm.details}
                   onChange={(e) => setReportForm(p => ({ ...p, details: e.target.value }))}
                   placeholder="Add any context that will help admins review"
+                  disabled={isSubmittingReport || reportSubmissionStatus === 'success'}
                 />
               </div>
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button>
-              <Button onClick={submitReport}>Submit Report</Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setReportOpen(false)}
+                disabled={isSubmittingReport}
+              >
+                {reportSubmissionStatus === 'success' ? 'Close' : 'Cancel'}
+              </Button>
+              
+              {reportSubmissionStatus !== 'success' && (
+                <Button 
+                  onClick={submitReport} 
+                  disabled={isSubmittingReport || !reportForm.reason}
+                  className="min-w-[140px]"
+                >
+                  {isSubmittingReport ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Report'
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1007,8 +1111,8 @@ export default function TeamPage() {
                           <SelectValue placeholder="Select a reason" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Incorrect role">Incorrect role</SelectItem>
-                          <SelectItem value="User left team">User left team</SelectItem>
+                          <SelectItem value="Negligence">Negligence</SelectItem>
+                          <SelectItem value="Lateness/Absenteeism">Lateness/Absenteeism</SelectItem>
                           <SelectItem value="Misconduct/abuse">Misconduct/abuse</SelectItem>
                           <SelectItem value="Other">Other</SelectItem>
                         </SelectContent>

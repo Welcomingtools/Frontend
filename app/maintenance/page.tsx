@@ -557,7 +557,7 @@ export default function MaintenancePage() {
               onClick={handleBackToDashboard}
               className="text-white hover:bg-white/10"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
             </Button>
             <div>
               <h1 className="text-xl font-bold">Maintenance Issues</h1>

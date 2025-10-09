@@ -60,7 +60,7 @@ interface SessionData {
     homes: boolean
     userCleanup: boolean
     handoutdata: boolean
-    reboot: boolean
+    // Remove reboot: boolean
   }
   createdBy: string
   createdByEmail: string
@@ -80,6 +80,16 @@ export default function LabStatusPage() {
   const queryTotal = searchParams.get('total')
   const sessionId = searchParams.get('session')
   const fromOverview = queryUp !== null && queryDown !== null && queryTotal !== null
+  
+  // Determine the correct back URL based on whether there's a session
+  const getBackUrl = () => {
+    if (sessionId) {
+      // If there's a session, go back to the schedule session page
+      return `/schedule?session=${sessionId}`
+    }
+    // Otherwise, go to the lab overview
+    return "/labs"
+  }
   
   // State for machine status
   const [machinesUp, setMachinesUp] = useState(() => {
@@ -137,7 +147,7 @@ export default function LabStatusPage() {
               homes: data.config_homes,
               userCleanup: data.config_user_cleanup,
               handoutdata: data.config_handoutdata,
-              reboot: data.config_reboot,
+              // Remove reboot: data.config_reboot,
             },
             createdBy: data.created_by,
             createdByEmail: data.created_by_email,
@@ -561,7 +571,7 @@ export default function LabStatusPage() {
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/labs">
+              <Link href={getBackUrl()}>
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
@@ -655,330 +665,325 @@ export default function LabStatusPage() {
           </Card>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2 mb-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Lab {labId} Status</CardTitle>
-                {!fromOverview && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={refreshMachineStatus}
-                    disabled={isLoading === 'refresh'}
-                  >
-                    {isLoading === 'refresh' ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <RefreshCcw className="h-4 w-4 mr-2" />
-                    )}
-                    Refresh
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm font-medium">Machines Online</span>
-                    <span className="text-sm font-medium">
-                      {machinesUp}/{totalMachines}
-                    </span>
-                  </div>
-                  <Progress value={(machinesUp / totalMachines) * 100} className="h-2" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
-                    <span className="text-2xl font-bold text-green-600">{machinesUp}</span>
-                    <span className="text-xs text-muted-foreground">Machines Up</span>
-                  </div>
-                  <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
-                    <span className="text-2xl font-bold text-red-600">{machinesDown}</span>
-                    <span className="text-xs text-muted-foreground">Machines Down</span>
-                  </div>
-                </div>
-
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">
-                    Lab Capacity: {totalMachines} machines
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Last updated: {lastUpdated}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Configurations to be Applied</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Monitor className="h-5 w-5 text-muted-foreground" />
-                    <Label>Windows Boot</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.windows || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <RefreshCcw className="h-5 w-5 text-muted-foreground" />
-                    <Label>User Cleanup</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.userCleanup || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Home className="h-5 w-5 text-muted-foreground" />
-                    <Label>Home Directories</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.homes || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe className="h-5 w-5 text-muted-foreground" />
-                    <Label>Internet Access</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.internet || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Download className="h-5 w-5 text-muted-foreground" />
-                    <Label>Handout Data</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.handoutdata || false)}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Power className="h-5 w-5 text-muted-foreground" />
-                    <Label>Reboot After Arming</Label>
-                  </div>
-                  {getConfigurationStatus(sessionData?.configurations.reboot || false)}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+<div className={`grid gap-4 ${sessionData ? 'md:grid-cols-2' : ''} mb-4`}>
+  <Card>
+    <CardHeader>
+      <div className="flex items-center justify-between">
+        <CardTitle>Lab {labId} Status</CardTitle>
+        {!fromOverview && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshMachineStatus}
+            disabled={isLoading === 'refresh'}
+          >
+            {isLoading === 'refresh' ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCcw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        )}
+      </div>
+    </CardHeader>
+    <CardContent>
+      <div className="space-y-4">
+        <div>
+          <div className="flex justify-between mb-2">
+            <span className="text-sm font-medium">Machines Online</span>
+            <span className="text-sm font-medium">
+              {machinesUp}/{totalMachines}
+            </span>
+          </div>
+          <Progress value={(machinesUp / totalMachines) * 100} className="h-2" />
         </div>
 
-        <Tabs defaultValue="commands">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="commands">Lab Commands</TabsTrigger>
-            <TabsTrigger value="status">Configuration Details</TabsTrigger>
-          </TabsList>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
+            <span className="text-2xl font-bold text-green-600">{machinesUp}</span>
+            <span className="text-xs text-muted-foreground">Machines Up</span>
+          </div>
+          <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
+            <span className="text-2xl font-bold text-red-600">{machinesDown}</span>
+            <span className="text-xs text-muted-foreground">Machines Down</span>
+          </div>
+        </div>
 
-          <TabsContent value="commands" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Server Connection
-                </CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Command server: 10.100.15.252:3001 | Lab: {labId}
-                </p>
-              </CardHeader>
-              <CardContent>
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">
+            Lab Capacity: {totalMachines} machines
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Last updated: {lastUpdated}
+          </p>
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+
+  {sessionData && (
+    <Card>
+    <CardHeader>
+      <CardTitle>Configurations to be Applied</CardTitle>
+    </CardHeader>
+    <CardContent>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Monitor className="h-5 w-5 text-muted-foreground" />
+            <Label>Windows Boot</Label>
+          </div>
+          {getConfigurationStatus(sessionData.configurations.windows)}
+        </div>
+  
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Globe className="h-5 w-5 text-muted-foreground" />
+            <Label>Internet Access</Label>
+          </div>
+          {getConfigurationStatus(sessionData.configurations.internet)}
+        </div>
+  
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Home className="h-5 w-5 text-muted-foreground" />
+            <Label>Home Directories</Label>
+          </div>
+          {getConfigurationStatus(sessionData.configurations.homes)}
+        </div>
+  
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-muted-foreground" />
+            <Label>User Cleanup</Label>
+          </div>
+          {getConfigurationStatus(sessionData.configurations.userCleanup)}
+        </div>
+  
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Download className="h-5 w-5 text-muted-foreground" />
+            <Label>Handout Data</Label>
+          </div>
+          {getConfigurationStatus(sessionData.configurations.handoutdata)}
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+  )}
+</div>
+
+<Tabs defaultValue="commands">
+  <TabsList className={`grid w-full ${sessionData ? 'grid-cols-2' : 'grid-cols-1'}`}>
+    <TabsTrigger value="commands">Lab Commands</TabsTrigger>
+    {sessionData && (
+      <TabsTrigger value="status">Configuration Details</TabsTrigger>
+    )}
+  </TabsList>
+
+  <TabsContent value="commands" className="space-y-4">
+    {/* Lab Commands content - this should always be shown */}
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          Server Connection
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Command server: 10.100.15.252:3001 | Lab: {labId}
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Button
+          onClick={testConnection}
+          disabled={isLoading !== null}
+          className="bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          {isLoading === 'test' ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <CheckCircle className="h-4 w-4 mr-2" />
+          )}
+          Test Server Connection
+        </Button>
+      </CardContent>
+    </Card>
+
+    {/* Commands organized by category */}
+    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+      {Object.entries(commandCategories).map(([category, commands]) => (
+        <Card key={category}>
+          <CardHeader>
+            <CardTitle className="text-lg">{category}</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {commands.length} command{commands.length > 1 ? 's' : ''} available for Lab {labId}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {commands.map((cmd) => (
                 <Button
-                  onClick={testConnection}
+                  key={cmd.id}
+                  onClick={() => executeCommand(cmd.id, cmd.name)}
                   disabled={isLoading !== null}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className={`w-full ${cmd.color} text-white p-4 h-auto flex items-center gap-3 relative`}
                 >
-                  {isLoading === 'test' ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  {isLoading === cmd.id ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
-                    <CheckCircle className="h-4 w-4 mr-2" />
+                    cmd.icon
                   )}
-                  Test Server Connection
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Commands organized by category */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {Object.entries(commandCategories).map(([category, commands]) => (
-                <Card key={category}>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{category}</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {commands.length} command{commands.length > 1 ? 's' : ''} available for Lab {labId}
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {commands.map((cmd) => (
-                        <Button
-                          key={cmd.id}
-                          onClick={() => executeCommand(cmd.id, cmd.name)}
-                          disabled={isLoading !== null}
-                          className={`w-full ${cmd.color} text-white p-4 h-auto flex items-center gap-3 relative`}
-                        >
-                          {isLoading === cmd.id ? (
-                            <Loader2 className="h-5 w-5 animate-spin" />
-                          ) : (
-                            cmd.icon
-                          )}
-                          <div className="text-left flex-1">
-                            <div className="font-medium text-sm">{cmd.name}</div>
-                            <div className="text-xs opacity-90">{cmd.description}</div>
-                          </div>
-                          {isLoading === cmd.id && (
-                            <div className="absolute bottom-1 right-2 text-xs">
-                              Executing...
-                            </div>
-                          )}
-                        </Button>
-                      ))}
+                  <div className="text-left flex-1">
+                    <div className="font-medium text-sm">{cmd.name}</div>
+                    <div className="text-xs opacity-90">{cmd.description}</div>
+                  </div>
+                  {isLoading === cmd.id && (
+                    <div className="absolute bottom-1 right-2 text-xs">
+                      Executing...
                     </div>
-                  </CardContent>
-                </Card>
+                  )}
+                </Button>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
 
-            {commandResults.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Command Results</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Recent command executions from welcometools server for Lab {labId}
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {commandResults.map((result, index) => (
-                      <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            {result.success ? (
-                              <CheckCircle className="h-5 w-5 text-green-600" />
-                            ) : (
-                              <XCircle className="h-5 w-5 text-red-600" />
-                            )}
-                            <span className="font-medium">{result.command}</span>
-                            {result.labId && (
-                              <Badge variant="secondary" className="text-xs">
-                                Lab {result.labId}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={result.success ? "default" : "destructive"}>
-                              {result.success ? "Success" : "Failed"}
-                            </Badge>
-                            <span className="text-sm text-muted-foreground">
-                              {result.timestamp} • {(result.duration / 1000).toFixed(1)}s
-                            </span>
-                          </div>
-                        </div>
-                        {result.welcometoolsCommand && (
-                          <div className="text-xs text-gray-500 mb-2 font-mono">
-                            Command: {result.welcometoolsCommand}
-                          </div>
-                        )}
-                        <pre className="text-sm bg-gray-50 p-3 rounded border overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
-                          {typeof result.output === 'string' ? result.output : result.output.join('\n')}
-                        </pre>
-                      </div>
-                    ))}
+    {commandResults.length > 0 && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Command Results</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Recent command executions from welcometools server for Lab {labId}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4 max-h-96 overflow-y-auto">
+            {commandResults.map((result, index) => (
+              <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    {result.success ? (
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-red-600" />
+                    )}
+                    <span className="font-medium">{result.command}</span>
+                    {result.labId && (
+                      <Badge variant="secondary" className="text-xs">
+                        Lab {result.labId}
+                      </Badge>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="status" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Detailed Configuration Status - Lab {labId}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="border-l-4 border-blue-500 pl-4">
-                    <h4 className="font-medium mb-2">Configurations to be Applied</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Windows Boot:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.windows ? 'text-green-600' : 'text-gray-400'}`}>
-                          {sessionData?.configurations.windows ? 'To be Applied' : 'Not Required'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">User Cleanup:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.userCleanup ? 'text-green-600' : 'text-gray-400'}`}>
-                          {sessionData?.configurations.userCleanup ? 'To be Applied' : 'Not Required'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Home Directories:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.homes ? 'text-green-600' : 'text-gray-400'}`}>
-                          {sessionData?.configurations.homes ? 'To be Applied' : 'Not Required'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Internet Access:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.internet ? 'text-green-600' : 'text-gray-400'}`}>
-                          {sessionData?.configurations.internet ? 'To be Applied' : 'Not Required'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Handout Data:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.handoutdata ? 'text-green-600' : 'text-gray-400'}`}>
-                          {sessionData?.configurations.handoutdata ? 'To be Applied' : 'Not Required'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Reboot After Arming:</span>
-                        <span className={`ml-2 font-medium ${sessionData?.configurations.reboot ? 'text-green-600' : 'text-gray-400'}`}>
-                          {sessionData?.configurations.reboot ? 'To be Applied' : 'Not Required'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {sessionData?.description && (
-                    <div className="border-l-4 border-green-500 pl-4">
-                      <h4 className="font-medium mb-2">Session Description</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {sessionData.description}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="border-l-4 border-gray-500 pl-4">
-                    <h4 className="font-medium mb-2">Lab Information</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Lab ID:</span>
-                        <span className="ml-2 font-medium">{labId}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Total Machines:</span>
-                        <span className="ml-2 font-medium">{totalMachines}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Machines Up:</span>
-                        <span className="ml-2 font-medium text-green-600">{machinesUp}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Machines Down:</span>
-                        <span className="ml-2 font-medium text-red-600">{machinesDown}</span>
-                      </div>
-                    </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={result.success ? "default" : "destructive"}>
+                      {result.success ? "Success" : "Failed"}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {result.timestamp} • {(result.duration / 1000).toFixed(1)}s
+                    </span>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                {result.welcometoolsCommand && (
+                  <div className="text-xs text-gray-500 mb-2 font-mono">
+                    Command: {result.welcometoolsCommand}
+                  </div>
+                )}
+                <pre className="text-sm bg-gray-50 p-3 rounded border overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
+                  {typeof result.output === 'string' ? result.output : result.output.join('\n')}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )}
+  </TabsContent>
+
+  {sessionData && (
+    <TabsContent value="status" className="space-y-4">
+      {/* Configuration Details content */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Detailed Configuration Status - Lab {labId}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            <div className="border-l-4 border-blue-500 pl-4">
+              <h4 className="font-medium mb-2">Configurations to be Applied</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+  <div>
+    <span className="text-muted-foreground">Windows Boot:</span>
+    <span className={`ml-2 font-medium ${sessionData.configurations.windows ? 'text-green-600' : 'text-gray-400'}`}>
+      {sessionData.configurations.windows ? 'To be Applied' : 'Not Required'}
+    </span>
+  </div>
+  <div>
+    <span className="text-muted-foreground">Internet Access:</span>
+    <span className={`ml-2 font-medium ${sessionData.configurations.internet ? 'text-green-600' : 'text-gray-400'}`}>
+      {sessionData.configurations.internet ? 'To be Applied' : 'Not Required'}
+    </span>
+  </div>
+  <div>
+    <span className="text-muted-foreground">Home Directories:</span>
+    <span className={`ml-2 font-medium ${sessionData.configurations.homes ? 'text-green-600' : 'text-gray-400'}`}>
+      {sessionData.configurations.homes ? 'To be Applied' : 'Not Required'}
+    </span>
+  </div>
+  <div>
+    <span className="text-muted-foreground">User Cleanup:</span>
+    <span className={`ml-2 font-medium ${sessionData.configurations.userCleanup ? 'text-green-600' : 'text-gray-400'}`}>
+      {sessionData.configurations.userCleanup ? 'To be Applied' : 'Not Required'}
+    </span>
+  </div>
+  <div>
+    <span className="text-muted-foreground">Handout Data:</span>
+    <span className={`ml-2 font-medium ${sessionData.configurations.handoutdata ? 'text-green-600' : 'text-gray-400'}`}>
+      {sessionData.configurations.handoutdata ? 'To be Applied' : 'Not Required'}
+    </span>
+  </div>
+  {/* Remove the reboot entry */}
+</div>
+            </div>
+
+            {sessionData.description && (
+              <div className="border-l-4 border-green-500 pl-4">
+                <h4 className="font-medium mb-2">Session Description</h4>
+                <p className="text-sm text-muted-foreground">
+                  {sessionData.description}
+                </p>
+              </div>
+            )}
+
+            <div className="border-l-4 border-gray-500 pl-4">
+              <h4 className="font-medium mb-2">Lab Information</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Lab ID:</span>
+                  <span className="ml-2 font-medium">{labId}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Total Machines:</span>
+                  <span className="ml-2 font-medium">{totalMachines}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Machines Up:</span>
+                  <span className="ml-2 font-medium text-green-600">{machinesUp}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Machines Down:</span>
+                  <span className="ml-2 font-medium text-red-600">{machinesDown}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </TabsContent>
+  )}
+</Tabs>
       </main>
     </div>
   )
