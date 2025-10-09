@@ -23,6 +23,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js";
+
 
 type Member = {
   id: string
@@ -32,6 +34,8 @@ type Member = {
   role: string
   status: "Active" | "Inactive"
   password: string
+  created_at: string  // Add this
+  updated_at: string  // Add this
 }
 
 type UserSession = {
@@ -85,6 +89,10 @@ export default function TeamPage() {
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
   const isWelcoming = userSession?.role === "Welcoming Team"
+  
+  //For add members
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+  const [createdInfo, setCreatedInfo] = useState<{ name: string; email: string; role: string; password:string } | null>(null);
 
   // Filtered list of members to display
   const displayedMembers = isAdmin
@@ -170,7 +178,9 @@ export default function TeamPage() {
           email: row.email,
           role: row.role,
           status: row.status as "Active" | "Inactive",
-          password: row.password
+          password: row.password,
+          created_at: row.created_at || new Date().toISOString(), // Add this
+          updated_at: row.updated_at || new Date().toISOString()  // Add this
         }))
 
         setTeamData(members)
@@ -272,64 +282,91 @@ export default function TeamPage() {
 
   // Add new member
   const handleAddMember = async () => {
-    if (!newMember.name || !newMember.email) return
-
-    const password = generateRandomPassword()
+    if (!newMember.name?.trim() || !newMember.email?.trim()) return;
 
     try {
-      const { data, error } = await supabase
-        .from('user')
-        .insert([{
-          name: newMember.name,
-          email: newMember.email,
+      setLoading(true);
+      setError(null); // Clear previous errors
+      
+      const res = await fetch("/api/team/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newMember.name.trim(),
+          email: newMember.email.trim(),
           role: newMember.role,
-          status: "Active",
-          password: password
-        }])
-        .select()
+        }),
+      });
 
-      if (error) {
-        console.error("Error adding member:", error)
-        alert("Failed to add member: " + error.message)
-        return
-      }
-
-      // Update local state
-      if (data && data[0]) {
-        const newMemberData = {
-          id: data[0].id,
-          name: data[0].surname,
-          surname: data[0].name,
-          email: data[0].email,
-          role: data[0].role,
-          status: data[0].status as "Active" | "Inactive",
-          password: data[0].password
+      const data = await res.json();
+      
+      if (!res.ok) {
+        // Show error but keep the dialog open so user can fix the issue
+        if (data.existing) {
+          setError(`User with email ${newMember.email.trim()} already exists.`);
+        } else {
+          setError(data.error || "Failed to add team member");
         }
-        setTeamData([newMemberData, ...teamData])
+        return; // Don't close dialog on error
       }
 
-      setNewMember({ name: "", email: "", role: "Welcoming Team" })
-      setIsAddDialogOpen(false)
+      // SUCCESS: Refresh the members list
+      const { data: membersData } = await supabase
+        .from("user")
+        .select("id, name, surname, email, role, status, password")
+        .order("name");
 
-      console.log("Member added successfully! Temporary password:", password)
-      alert(`Temporary password for ${newMember.name}: ${password}`)
-    } catch (err) {
-      console.error("Error adding member:", err)
-      alert("Failed to add member. Please check your Supabase RLS policies.")
+       if (membersData) {
+        const now = new Date().toISOString()
+      const members = membersData.map(row => ({
+        id: row.id,
+        name: row.name,
+        surname: row.surname || "",
+        email: row.email,
+        role: row.role,
+        status: (row.status as "Active" | "Inactive") ?? "Active",
+        password: row.password,
+         created_at: now, 
+        updated_at: now,
+      }));
+      setTeamData(members);
     }
-  }
+
+      // Show success dialog
+      setCreatedInfo({
+        name: newMember.name.trim(),
+        email: newMember.email.trim(),
+        role: newMember.role,
+        password: "Sent via email"
+      });
+      setIsSuccessOpen(true);
+
+      // Reset form and CLOSE the Add Member dialog
+      setNewMember({ name: "", email: "", role: "Welcoming Team" });
+      setIsAddDialogOpen(false); // This closes the dialog
+
+    } catch (err: any) {
+      console.error("Add member error:", err);
+      setError("An unexpected error occurred");
+      // Keep dialog open on unexpected errors too
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Edit existing member
   const handleEditMember = async () => {
     if (!editMember) return
 
     try {
+      const now = new Date().toISOString()
       const { error } = await supabase
         .from('user')
         .update({
           name: editMember.name,
           email: editMember.email,
           role: editMember.role,
+          updated_at: now,
         })
         .eq('id', editMember.id)
 
@@ -378,9 +415,10 @@ export default function TeamPage() {
     const newStatus = member.status === "Active" ? "Inactive" : "Active"
     
     try {
+      const now = new Date().toISOString()
       const { error } = await supabase
         .from('user')
-        .update({ status: newStatus })
+        .update({ status: newStatus, updated_at: now })
         .eq('id', id)
 
       if (error) {
@@ -579,6 +617,15 @@ export default function TeamPage() {
                   <DialogTitle>Add Team Member</DialogTitle>
                   <DialogDescription>Add a new member to the team.</DialogDescription>
                 </DialogHeader>
+                
+                {/* Show errors inside the dialog */}
+                {error && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
                     <Label htmlFor="name">Full Name</Label>
@@ -614,11 +661,30 @@ export default function TeamPage() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                  <Button onClick={handleAddMember}>Add Member</Button>
+                  <Button variant="outline" onClick={() => {
+                    setIsAddDialogOpen(false);
+                    setError(null); // Clear error when canceling
+                    setNewMember({ name: "", email: "", role: "Welcoming Team" }); // Reset form
+                  }}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleAddMember} 
+                    disabled={loading}
+                    className="flex items-center gap-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Adding...
+                      </>
+                    ) : (
+                      "Add Member"
+                    )}
+                  </Button>
                 </DialogFooter>
               </DialogContent>
-            </Dialog>
+            </Dialog> 
             )}
         </div>
       </header>
@@ -966,6 +1032,40 @@ export default function TeamPage() {
               <Button onClick={saveReportEdits}>
                 {isAdmin ? "Save Status" : "Save Changes"}
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* For Login Notification */}
+        <Dialog open={isSuccessOpen} onOpenChange={setIsSuccessOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-green-700">Team member created</DialogTitle>
+              <DialogDescription>
+                We’ve emailed your password to <span className="font-medium">{createdInfo?.email}</span>.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Full name</span>
+                <span className="font-medium">{createdInfo?.name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Email</span>
+                <span className="font-medium">{createdInfo?.email}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Role</span>
+                <span className="font-medium">{createdInfo?.role}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                For security, the password is not shown here.
+              </p>
+            </div>
+
+            <DialogFooter className="mt-4">
+              <Button onClick={() => setIsSuccessOpen(false)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
