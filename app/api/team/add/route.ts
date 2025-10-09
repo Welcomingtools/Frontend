@@ -106,7 +106,7 @@ export async function POST(req: Request) {
             <p><strong>Important:</strong> Please keep your password safe.</p>
             
             <div style="margin: 20px 0;">
-              <a href="${process.env.APP_URL || 'http://localhost:3000'}/login" 
+              <a href="${process.env.APP_URL || 'http://10.100.15.252:3000'}/login" 
                  style="background: #0f4d92; color: white; padding: 10px 20px; 
                         text-decoration: none; border-radius: 5px; display: inline-block;">
                 Login to Your Account
