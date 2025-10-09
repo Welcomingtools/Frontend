@@ -77,7 +77,7 @@ export default function TeamPage() {
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [teamData, setTeamData] = useState<Member[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [newMember, setNewMember] = useState({ name: "", email: "", role: "Welcoming Team" })
+  const [newMember, setNewMember] = useState({ name: "",surname: "",  email: "", role: "Welcoming Team" })
   const [editMember, setEditMember] = useState<Member | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -293,6 +293,7 @@ export default function TeamPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newMember.name.trim(),
+          surname: newMember.surname.trim(),
           email: newMember.email.trim(),
           role: newMember.role,
         }),
@@ -342,7 +343,7 @@ export default function TeamPage() {
       setIsSuccessOpen(true);
 
       // Reset form and CLOSE the Add Member dialog
-      setNewMember({ name: "", email: "", role: "Welcoming Team" });
+      setNewMember({ name: "", surname: "",  email: "", role: "Welcoming Team" });
       setIsAddDialogOpen(false); // This closes the dialog
 
     } catch (err: any) {
@@ -618,7 +619,7 @@ export default function TeamPage() {
                   <DialogDescription>Add a new member to the team.</DialogDescription>
                 </DialogHeader>
                 
-                {/* Show errors inside the dialog */}
+                {/* Error Display inside Dialog */}
                 {error && (
                   <Alert variant="destructive" className="mb-4">
                     <AlertTriangle className="h-4 w-4" />
@@ -627,15 +628,28 @@ export default function TeamPage() {
                 )}
                 
                 <div className="grid gap-4 py-4">
+                  {/* Name Field */}
                   <div className="grid gap-2">
-                    <Label htmlFor="name">Full Name</Label>
+                    <Label htmlFor="name">Name</Label>
                     <Input
                       id="name"
                       value={newMember.name}
                       onChange={e => setNewMember({ ...newMember, name: e.target.value })}
-                      placeholder="Enter full name"
+                      placeholder="Enter name"
                     />
                   </div>
+                  
+                  {/* Surname Field - ADD THIS */}
+                  <div className="grid gap-2">
+                    <Label htmlFor="surname">Surname</Label>
+                    <Input
+                      id="surname"
+                      value={newMember.surname}
+                      onChange={e => setNewMember({ ...newMember, surname: e.target.value })}
+                      placeholder="Enter surname"
+                    />
+                  </div>
+                  
                   <div className="grid gap-2">
                     <Label htmlFor="email">Email</Label>
                     <Input
@@ -663,8 +677,8 @@ export default function TeamPage() {
                 <DialogFooter>
                   <Button variant="outline" onClick={() => {
                     setIsAddDialogOpen(false);
-                    setError(null); // Clear error when canceling
-                    setNewMember({ name: "", email: "", role: "Welcoming Team" }); // Reset form
+                    setError(null);
+                    setNewMember({ name: "", surname: "", email: "", role: "Welcoming Team" }); // Update reset
                   }}>
                     Cancel
                   </Button>
