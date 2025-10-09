@@ -199,6 +199,17 @@ const getCheckInStatus = (sessionDate: string, startTime: string, endTime: strin
   }
 }
 
+const generateTimeOptions = () => {
+  const times = [];
+  for (let hour = 0; hour < 24; hour++) {
+    for (let minute = 0; minute < 60; minute += 15) {
+      const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      times.push(timeString);
+    }
+  }
+  return times;
+};
+
 // Helper function to generate recurring dates
 const generateRecurringDates = (startDate: string, endDate: string): string[] => {
   const dates = [];
@@ -959,27 +970,45 @@ export default function SchedulePage() {
     };
   };
 
-  // Render session buttons
+
+// Render session buttons
   const renderSessionButtons = (session: any) => {
     const checkInAvailable = canCheckIn(session.date, session.startTime, session.endTime) && session.status === "confirmed";
     const isUnderReview = session.status === "under_review";
     const checkInStatus = getSessionCheckInStatus(session);
     const isCheckingIn = checkingInSessions.has(session.id);
     const isCompleting = completingSessions.has(session.id);
+    const isAdmin = userSession?.role === "Admin";
     
-    if (!canCheckInToSessions()) {
+    // Show delete button for admins regardless of session state
+    const showAdminDeleteButton = isAdmin;
+
+    if (!canCheckInToSessions() && !isAdmin) {
       return null;
     }
 
     if (isUnderReview) {
       return (
-        <Button disabled className="flex-1">
-          Under Review
-        </Button>
+        <div className="flex gap-2">
+          <Button disabled className="flex-1">
+            Under Review
+          </Button>
+          {showAdminDeleteButton && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleCancelSession(session.id)}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+              title="Delete Session"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       );
     }
 
-    if (!checkInAvailable) {
+    if (!checkInAvailable && !isAdmin) {
       return (
         <Button disabled className="flex-1">
           Not Available
@@ -991,22 +1020,48 @@ export default function SchedulePage() {
       if (checkInStatus.isCurrentUser) {
         if (checkInStatus.sessionStatus === 'completed') {
           return (
-            <Button disabled className="flex-1 bg-gray-500">
-              Setup Completed
-            </Button>
+            <div className="flex gap-2">
+              <Button disabled className="flex-1 bg-gray-500">
+                Setup Completed
+              </Button>
+              {showAdminDeleteButton && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => handleCancelSession(session.id)}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  title="Delete Session"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           );
         }
         
         // Show both lab control access and completion options
         return (
           <div className="flex flex-col gap-2 flex-1">
-            <Button 
-              className="bg-green-600 hover:bg-green-700" 
-              onClick={() => router.push(`/labs/${session.lab}?session=${session.id}`)}
-              disabled={isCompleting}
-            >
-              Enter Lab Controls
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                className="bg-green-600 hover:bg-green-700 flex-1" 
+                onClick={() => router.push(`/labs/${session.lab}?session=${session.id}`)}
+                disabled={isCompleting}
+              >
+                Enter Lab Controls
+              </Button>
+              {showAdminDeleteButton && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => handleCancelSession(session.id)}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  title="Delete Session"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
             <Button 
               variant="outline"
               size="sm"
@@ -1029,38 +1084,52 @@ export default function SchedulePage() {
           </div>
         );
       } else {
+        // Session is checked in by someone else - only show admin delete button
         return (
-          <div className="flex-1">
-            <Button disabled className="w-full">
-              {checkInStatus.sessionStatus === 'completed' ? 
-                'Session Completed' : 
-                `Checked In by ${checkInStatus.checkedInBy}`
-              }
+          showAdminDeleteButton && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleCancelSession(session.id)}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+              title="Delete Session"
+            >
+              <Trash2 className="h-4 w-4" />
             </Button>
-            <p className="text-xs text-muted-foreground text-center mt-1">
-              at {checkInStatus.checkedInTime}
-            </p>
-          </div>
+          )
         );
       }
     }
 
     // Check-in button with animation
     return (
-      <Button 
-        className="flex-1" 
-        onClick={() => handleCheckIn(session.id)}
-        disabled={isCheckingIn}
-      >
-        {isCheckingIn ? (
-          <>
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Checking In...
-          </>
-        ) : (
-          'Check In'
+      <div className="flex gap-2">
+        <Button 
+          className="flex-1" 
+          onClick={() => handleCheckIn(session.id)}
+          disabled={isCheckingIn}
+        >
+          {isCheckingIn ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Checking In...
+            </>
+          ) : (
+            'Check In'
+          )}
+        </Button>
+        {showAdminDeleteButton && (
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => handleCancelSession(session.id)}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+            title="Delete Session"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         )}
-      </Button>
+      </div>
     );
   };
 
@@ -1228,6 +1297,7 @@ export default function SchedulePage() {
                         value={newSession.startTime}
                         onChange={(e) => handleFormChange("startTime", e.target.value)}
                         className={validationErrors.startTime ? "border-red-500" : ""}
+                        step="900" // 900 seconds = 15 minutes
                       />
                       {validationErrors.startTime && (
                         <p className="text-sm text-red-500">{validationErrors.startTime}</p>
@@ -1243,6 +1313,7 @@ export default function SchedulePage() {
                         value={newSession.endTime}
                         onChange={(e) => handleFormChange("endTime", e.target.value)}
                         className={validationErrors.endTime ? "border-red-500" : ""}
+                        step="900" // 900 seconds = 15 minutes
                       />
                       {validationErrors.endTime && (
                         <p className="text-sm text-red-500">{validationErrors.endTime}</p>
