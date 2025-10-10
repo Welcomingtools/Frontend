@@ -249,6 +249,7 @@ export default function SchedulePage() {
   // NEW: Check-in loading states
   const [checkingInSessions, setCheckingInSessions] = useState<Set<string>>(new Set())
   const [completingSessions, setCompletingSessions] = useState<Set<string>>(new Set())
+  const [localCheckins, setLocalCheckins] = useState<Record<string, boolean>>({});
 
   const autoCompleteSessions = async () => {
     try {
@@ -885,6 +886,10 @@ export default function SchedulePage() {
 
       // Success - Show success message but don't navigate
       showToast("Successfully checked into session! You can now enter lab controls when ready.", "success");
+      
+      // show post-check-in buttons immediately (no refresh)
+      setLocalCheckins(prev => ({ ...prev, [sessionId]: true }));
+      
 
     } catch (error) {
       console.error('Check-in error:', error);
@@ -972,6 +977,7 @@ export default function SchedulePage() {
 
 
 // Render session buttons
+
   const renderSessionButtons = (session: any) => {
     const checkInAvailable = canCheckIn(session.date, session.startTime, session.endTime) && session.status === "confirmed";
     const isUnderReview = session.status === "under_review";
@@ -979,6 +985,9 @@ export default function SchedulePage() {
     const isCheckingIn = checkingInSessions.has(session.id);
     const isCompleting = completingSessions.has(session.id);
     const isAdmin = userSession?.role === "Admin";
+    const isWelcomeTeam = userSession?.role === "Welcoming Team";
+    const server = getSessionCheckInStatus(session);
+    const isCheckedIn = localCheckins[session.id] ?? server.isCheckedIn;
     
     // Show delete button for admins regardless of session state
     const showAdminDeleteButton = isAdmin;
@@ -1101,36 +1110,44 @@ export default function SchedulePage() {
       }
     }
 
-    // Check-in button with animation
-    return (
-      <div className="flex gap-2">
-        <Button 
-          className="flex-1" 
-          onClick={() => handleCheckIn(session.id)}
-          disabled={isCheckingIn}
-        >
-          {isCheckingIn ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Checking In...
-            </>
-          ) : (
-            'Check In'
-          )}
-        </Button>
-        {showAdminDeleteButton && (
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => handleCancelSession(session.id)}
-            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-            title="Delete Session"
+    // Show check-in button ONLY for Welcome Team users (NOT Admins or BCDR)
+    if (isWelcomeTeam) {
+      return (
+        <div className="flex gap-2">
+          <Button 
+            onClick={() => handleCheckIn(session.id)}
+            disabled={isCheckingIn || !checkInAvailable}
+            className="flex-1"
           >
-            <Trash2 className="h-4 w-4" />
+            {isCheckingIn ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Checking In...
+              </>
+            ) : (
+              "Check In"
+            )}
           </Button>
-        )}
-      </div>
-    );
+        </div>
+      );
+    }
+
+    // Admins and BCDR users see only delete button for unchecked-in sessions
+    if (isAdmin) {
+      return (
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => handleCancelSession(session.id)}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+          title="Delete Session"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      );
+    }
+
+    return null;
   };
 
   // Navigation and formatting functions
@@ -1764,18 +1781,7 @@ export default function SchedulePage() {
                             <div className="flex flex-col gap-2">
                               <div className="flex gap-2">
                                 {renderSessionButtons(session)}
-                                
-                                {session.createdBy === userSession?.name && !sessionCheckIn.isCheckedIn && (
-                                  <Button
-                                    variant="outline"
-                                    size="icon"
-                                    onClick={() => handleCancelSession(session.id)}
-                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                    title="Delete Session"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                )}
+
                               </div>
                             </div>
                           </div>
