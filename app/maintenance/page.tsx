@@ -109,6 +109,7 @@ interface Issue {
   created_at: string
   resolved_by: string | null
   updated_at: string | null
+  resolved_at: string | null
   machine_id: string
 }
 
@@ -401,6 +402,7 @@ export default function MaintenancePage() {
 
     setIsSubmitting(true)
     try {
+      const now = new Date().toISOString()
       const { data, error } = await supabase
         .from('maintenance_issues')
         .insert({
@@ -413,6 +415,8 @@ export default function MaintenancePage() {
           reported_by: userSession.name,
           machine_id: newIssue.machineId.trim(),
           resolved_by: null,
+           created_at: now, 
+          updated_at: now,
         })
         .select()
         
@@ -476,7 +480,7 @@ export default function MaintenancePage() {
       const updateData = {
         status: newStatus,
         resolved_by: newStatus === "resolved" ? (userSession?.name ?? "Maintenance Team") : null,
-        updated_at: new Date().toISOString()
+        
       }
 
       const { data, error } = await supabase
