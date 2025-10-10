@@ -223,7 +223,7 @@ export default function ReportsPage() {
       setIncidents(iData || [])
 
       const { data: bData, error: bErr } = await supabase
-        .from("user_reports")
+        .from("incident")
         .select(
           `id, reported_user_id, reported_user_name, reported_user_email, reported_user_role, reporter_email, reporter_name, reporter_role, reason, details, status, created_at, updated_at`
         )

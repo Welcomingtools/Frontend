@@ -60,6 +60,7 @@ type Report = {
   details: string
   status: "Submitted" | "Resolved" | "Under Review"
   created_at: string
+  updated_at: string
 }
 
 // Utility function to generate random password
@@ -212,6 +213,7 @@ export default function TeamPage() {
         let query = supabase
           .from('incident')
           .select('*')
+          .order("created_at", { ascending: false });
 
         if (!isAdmin) {
           query = query.eq('reporter_email', userEmail)
@@ -463,6 +465,7 @@ export default function TeamPage() {
     try {
       toast.info("Submitting your report...")
 
+      const now = new Date().toISOString()
       const { data, error } = await supabase
         .from("incident")
         .insert([
@@ -477,16 +480,22 @@ export default function TeamPage() {
             reason: reportForm.reason,
             details: reportForm.details,
             status: "Submitted",
+            created_at: now,
+            updated_at: now,
           },
         ])
         .select()
         .single();
 
       if (error) {
-        console.error("Report failed:", error)
-        setReportSubmissionStatus("error")
-        toast.error("Failed to submit report: " + error.message)
-        return
+        console.error("Supabase insert error:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: (error as any).code,
+        });
+        setReportError(error?.message || "Something went wrong while submitting the report.");
+        return;
       }
 
       if (data) {
