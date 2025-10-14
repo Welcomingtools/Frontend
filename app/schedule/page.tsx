@@ -111,6 +111,7 @@ interface SessionData {
 type UserSession = {
   email: string
   name: string
+  surname: string
   role: string
   loginTime: string
   accountType: string
@@ -886,9 +887,8 @@ export default function SchedulePage() {
 
       // Success - Show success message but don't navigate
       showToast("Successfully checked into session! You can now enter lab controls when ready.", "success");
-      
-      // show post-check-in buttons immediately (no refresh)
-      setLocalCheckins(prev => ({ ...prev, [sessionId]: true }));
+      await loadSessions();
+     
       
 
     } catch (error) {
@@ -1226,7 +1226,7 @@ export default function SchedulePage() {
             <div>
               <h1 className="text-xl font-bold">Schedule Sessions</h1>
               <p className="text-xs opacity-75">
-                {userSession.name} ({userSession.role}) - 
+                {userSession.name} {userSession.surname} ({userSession.role}) - 
                 {canScheduleSessions() ? " Can schedule sessions" : " Can check in to sessions"}
               </p>
             </div>

@@ -128,6 +128,7 @@ interface ValidationErrors {
 type UserSession = {
   email: string
   name: string
+  surname: string
   role: string
   loginTime: string
   accountType: string
@@ -575,7 +576,7 @@ export default function MaintenancePage() {
             <div>
               <h1 className="text-xl font-bold">Maintenance Issues</h1>
               <p className="text-xs opacity-75">
-                {userSession.name} ({userSession.role}) - 
+                {userSession.name}  {userSession.surname} ({userSession.role}) - 
                 {canUpdateStatus() ? " Can manage issues" : " Can report and view issues"}
               </p>
             </div>

@@ -9,6 +9,7 @@ import { ArrowRight, Server, Users, Activity, Calendar, CalendarRange, AlertTria
 type UserSession = {
   email: string
   name: string
+  surname:string
   role: string
   loginTime: string
   accountType: string
@@ -53,7 +54,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-2xl font-bold">MSS Welcoming Tools</h1>
             <p className="text-sm opacity-80">University of the Witwatersrand</p>
-            <p className="text-xs opacity-60">Welcome, {userSession.name} ({userSession.role})</p>
+            <p className="text-xs opacity-60">Welcome, {userSession.name} {userSession.surname} ({userSession.role})</p>
           </div>
           <Button 
             variant="ghost" 

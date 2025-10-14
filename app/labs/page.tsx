@@ -169,7 +169,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
 
     // Fetch the user's database ID using their email
     const { data: userData, error: userError } = await supabase
-      .from('team_members')
+      .from('user')
       .select('id')
       .eq('email', userEmail)
       .single()
@@ -180,7 +180,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
     }
 
     if (!userData || !userData.id) {
-      throw new Error("User not found in team_members table")
+      throw new Error("User not found in user table")
     }
 
     const adminId = userData.id

@@ -42,6 +42,7 @@ type Member = {
 type UserSession = {
   email: string
   name: string
+  surname:string
   role: string
   loginTime: string
   accountType: string
@@ -645,7 +646,7 @@ export default function TeamPage() {
             </Button>
             <div>
               <h1 className="text-xl font-bold">{isAdmin ? "Team Management" : "My Team"}</h1>
-              <p className="text-xs opacity-75">Logged in as: {userSession?.name} ({userSession?.role})</p>
+              <p className="text-xs opacity-75">Logged in as: {userSession?.name} {userSession?.surname} ({userSession?.role})</p>
             </div>
           </div>
 
@@ -781,7 +782,7 @@ export default function TeamPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{member.name}</p>
+                        <p className="font-medium">{member.name} {member.surname}</p>
                         <p className="text-sm text-muted-foreground">{member.email}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <Badge variant="outline">{member.role}</Badge>
