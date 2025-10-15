@@ -159,8 +159,9 @@ export default function LoginPage() {
             
             <Button 
               type="submit" 
-              className="w-full h-12 bg-gradient-to-r from-[#0f4d92] to-[#1e5fa8] hover:from-[#0d4080] hover:to-[#1a5396] text-white font-medium transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none" 
+              className="w-full h-12 bg-gradient-to-r from-[#000068] to-[#1e5fa8] hover:from-[#030384] hover:to-[#1a5396] text-white font-medium transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none" 
               disabled={isLoading}
+              
             >
               {isLoading ? (
                 <>
