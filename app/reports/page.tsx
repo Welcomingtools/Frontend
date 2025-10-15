@@ -531,7 +531,7 @@ const sessionByDay = useMemo(() => {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <header className="bg-[#0f4d92] text-white p-4">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-4">
             <Link href="/dashboard">
@@ -551,7 +551,7 @@ const sessionByDay = useMemo(() => {
         <div className="space-y-6 pt-2 pb-66">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="pt-2">
-              <p className="text-lg text-black text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents.</p>
+              <p className="text-lg font-semibold text-black text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents.</p>
             </div>
             <div className="flex items-end gap-4 pb-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -564,7 +564,7 @@ const sessionByDay = useMemo(() => {
                   <Input id="to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                 </div>
               </div>
-              <Button onClick={loadData} disabled={loading} className="bg-[#0f4d92] hover:bg-[#0a3d7a]">
+              <Button onClick={loadData} disabled={loading} className="bg-[#000068] hover:bg-[#030384]">
                 {loading ? "Loading…" : "Refresh"}
               </Button>
             </div>
@@ -598,11 +598,11 @@ const sessionByDay = useMemo(() => {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
-                      <CardTitle className="flex items-center gap-2">
+                      <CardTitle className="flex items-center gap-2 ">
                         <Activity className="h-5 w-5" />
                         Session Activity Report
                       </CardTitle>
-                      <CardDescription>
+                      <CardDescription className="mt-2 px-2">
                         View session counts by hour and by lab; toggle the detailed list to see each session with purpose/creator.
                       </CardDescription>
                     </div>
@@ -612,7 +612,7 @@ const sessionByDay = useMemo(() => {
                       </Button>
                       <Button
                       onClick={() => exportSectionToPDF(sessionPDFRef, "session-activity.pdf")}
-                      className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
+                      className="bg-[#000068] hover:bg-[#030384] flex items-center gap-2"
                     >
                       <Download className="h-4 w-4" />
                       Export PDF
@@ -728,7 +728,7 @@ const sessionByDay = useMemo(() => {
                     
                       <Button
                         onClick={() => exportSectionToPDF(behaviourPDFRef, "staff-behaviour.pdf")}
-                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
+                        className="bg-[#000068] hover:bg-[#030384] flex items-center gap-2"
                       >
                         <Download className="h-4 w-4" />
                         Export PDF
@@ -852,7 +852,7 @@ const sessionByDay = useMemo(() => {
                       </Button>
                       <Button
                         onClick={() => exportSectionToPDF(incidentsPDFRef, "incident-report.pdf")}
-                        className="bg-[#0f4d92] hover:bg-[#0a3d7a] flex items-center gap-2"
+                        className="bg-[#000068] hover:bg-[#030384] flex items-center gap-2"
                       >
                         <Download className="h-4 w-4" />
                         Export PDF
@@ -998,7 +998,7 @@ function ScrollToTopButton() {
   return (
     <button
       onClick={scrollToTop}
-      className="fixed bottom-6 right-6 p-3 rounded-full bg-[#0f4d92] text-white shadow-lg hover:bg-[#0a3d7a] transition-colors"
+      className="fixed bottom-6 right-6 p-3 rounded-full bg-[#000068]  text-white shadow-lg hover:bg-[#030384] transition-colors"
       aria-label="Scroll to top"
     >
       <ArrowUp className="h-5 w-5" />

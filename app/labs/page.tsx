@@ -1183,7 +1183,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <header className="bg-[#0f4d92] text-white p-4">
+        <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
           <div className="container mx-auto flex justify-between items-center">
           <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
               <Link href="/dashboard">
@@ -1208,7 +1208,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-[#0f4d92] text-white p-4">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-4">
@@ -1404,7 +1404,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
                           setImportedStudents([])
                           setCsvFile(null)
                         }}
-                        className="flex-1 text-xs sm:text-sm"
+                        className="flex-1 text-xs sm:text-sm bg-[#000068] hover:bg-[#030384]"
                       >
                         Manual Entry
                       </Button>
@@ -1538,7 +1538,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
                   <Tooltip content="Create seating plan with current settings and student list">
                     <Button 
                       onClick={generateSeatingPlan} 
-                      className="w-full sm:flex-1 text-sm" 
+                      className="w-full sm:flex-1 text-sm bg-[#000068] hover:bg-[#030384]" 
                       disabled={!examType || !examDate || !examName.trim() || getCurrentStudentList().length === 0 || (allocationStrategy === "select-manually" && selectedLabs.length === 0) || isSaving}
                     >
                       {isSaving ? (
@@ -1693,7 +1693,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
                     className={`block ${lab.isLoading ? 'pointer-events-none' : ''}`}
                   >
                     <Button 
-                      className="w-full bg-[#1e40af] hover:bg-[#1d4ed8] text-sm"
+                      className="w-full bg-[#000068] **group-hover: bg-gradient-to-r from-[#030384] to-[#1e5fa8]**"
                       disabled={lab.isLoading}
                     >
                       {lab.isLoading ? (

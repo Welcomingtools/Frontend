@@ -580,7 +580,7 @@ export default function TeamPage() {
   if (!isAuthorized) {
     return (
       <div className="min-h-screen flex flex-col">
-        <header className="bg-[#0f4d92] text-white p-4">
+        <header className="bg-[#000068] text-white p-4">
           <div className="container mx-auto flex justify-between items-center">
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" asChild className="text-white">
@@ -636,7 +636,7 @@ export default function TeamPage() {
   // Show team management page for authorized users
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
@@ -730,7 +730,7 @@ export default function TeamPage() {
                   <Button 
                     onClick={handleAddMember} 
                     disabled={loading}
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 bg-[#000068] hover:bg-[#030384]"
                   >
                     {loading ? (
                       <>

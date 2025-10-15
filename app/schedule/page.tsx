@@ -1212,7 +1212,7 @@ export default function SchedulePage() {
         </div>
       )}
 
-      <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
+     <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button 
@@ -1563,6 +1563,7 @@ export default function SchedulePage() {
                   <Button 
                     onClick={handleCreateSession} 
                     disabled={isSubmitting}
+                    className="bg-[#000068] hover:bg-[#030384]"
                   >
                     {isSubmitting ? "Scheduling..." : 
                      newSession.labs.length > 1 ? 
@@ -1628,7 +1629,7 @@ export default function SchedulePage() {
 
             {isLoading ? (
               <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0f4d92] mx-auto mb-2"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#000068] mx-auto mb-2"></div>
                 <p className="text-sm text-muted-foreground">Loading sessions...</p>
               </div>
             ) : filteredSessions.length === 0 ? (
@@ -1637,8 +1638,8 @@ export default function SchedulePage() {
                 <h3 className="text-lg font-medium">No Sessions Scheduled</h3>
                 <p className="text-sm text-muted-foreground mb-4">There are no sessions scheduled for this date.</p>
                 {canScheduleSessions() && (
-                  <Button onClick={() => setIsAddDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+                  <Button className="bg-[#000068] hover:bg-[#030384]" onClick={() => setIsAddDialogOpen(true)}>
+                    <Plus className=" h-4 w-4 mr-2" />
                     Schedule New Session
                   </Button>
                 )}
@@ -1659,7 +1660,7 @@ export default function SchedulePage() {
                       <Card key={session.id} className={`overflow-hidden border-l-4 ${
                         isUnderReview ? 'border-l-orange-500' : 
                         sessionCheckIn.sessionStatus === 'completed' ? 'border-l-gray-500' :
-                        sessionCheckIn.isCheckedIn ? 'border-l-green-500' : 'border-l-[#0f4d92]'
+                        sessionCheckIn.isCheckedIn ? 'border-l-green-500' : 'border-l-[#000068]'
                       }`}>
                         <CardContent className="p-4">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1673,7 +1674,7 @@ export default function SchedulePage() {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-medium">{session.purpose}</h3>
-                                  <Badge>Lab {session.lab}</Badge>
+                                  <Badge className="bg -[#000068]" >Lab {session.lab}</Badge>
                                   <Badge variant="outline" className="bg-blue-100 text-blue-800">
                                     {session.courseCode}
                                   </Badge>

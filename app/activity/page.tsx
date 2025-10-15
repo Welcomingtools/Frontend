@@ -38,12 +38,12 @@ export default function ActivityPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild className="text-white">
-              <Link href="/">
-                <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" asChild className="text-white hover:bg-white/10">
+              <Link href="/dashboard">
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
               </Link>
             </Button>
             <h1 className="text-xl font-bold">Activity Log</h1>

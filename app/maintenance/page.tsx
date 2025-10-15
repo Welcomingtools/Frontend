@@ -562,7 +562,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button 
@@ -751,6 +751,7 @@ export default function MaintenancePage() {
                   <Button 
                     onClick={handleCreateIssue}
                     disabled={isSubmitting}
+                    className="bg-[#000068] hover:bg-[#030384]"
                   >
                     {isSubmitting ? "Reporting..." : "Report Issue"}
                   </Button>
@@ -866,8 +867,8 @@ export default function MaintenancePage() {
                       }
                     </p>
                     {canReportIssue() && (
-                      <Button onClick={() => setIsAddDialogOpen(true)}>
-                        <Plus className="h-4 w-4 mr-2" />
+                      <Button className="bg-[#000068] hover:bg-[#030384] " onClick={() => setIsAddDialogOpen(true)}>
+                        <Plus className=" h-4 w-4 mr-2 bg-[#000068] hover:bg-[#030384]" />
                         Report New Issue
                       </Button>
                     )}
@@ -909,7 +910,7 @@ export default function MaintenancePage() {
                             </div>
                           </div>
                         </div>
-                        <Button className="self-start md:self-center" onClick={() => handleViewIssue(issue)}>
+                        <Button className="bg-[#000068] hover:bg-[#030384] self-start md:self-center" onClick={() => handleViewIssue(issue)}>
                           View Details
                         </Button>
                       </div>
@@ -935,7 +936,7 @@ export default function MaintenancePage() {
                     </p>
                     {canReportIssue() && (
                       <Button onClick={() => setIsAddDialogOpen(true)}>
-                        <Plus className="h-4 w-4 mr-2" />
+                        <Plus className="bg-[#000068] hover:bg-[#030384] h-4 w-4 mr-2 bg-[#000068] hover:bg-[#030384]" />
                         Report New Issue
                       </Button>
                     )}
@@ -972,7 +973,7 @@ export default function MaintenancePage() {
                             </div>
                           </div>
                         </div>
-                        <Button className="self-start md:self-center" onClick={() => handleViewIssue(issue)}>
+                        <Button className="bg-[#000068] hover:bg-[#030384] self-start md:self-center" onClick={() => handleViewIssue(issue)}>
                           View Details
                         </Button>
                       </div>
@@ -1031,7 +1032,7 @@ export default function MaintenancePage() {
                               </div>
                             </div>
                           </div>
-                          <Button className="self-start md:self-center" onClick={() => handleViewIssue(issue)}>
+                          <Button className="bg-[#000068] hover:bg-[#030384] self-start md:self-center" onClick={() => handleViewIssue(issue)}>
                             View Details
                           </Button>
                         </div>
