@@ -198,9 +198,9 @@ export default function CalendarPage() {
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             {/* Back now goes to /dashboard */}
-            <Button variant="ghost" size="icon" asChild className="text-white">
+            <Button variant="ghost" size="icon" asChild className="hover:bg-white/10">
               <Link href="/dashboard">
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
               </Link>
             </Button>
             <h1 className="text-xl font-bold">Lab Timetable</h1>
