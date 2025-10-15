@@ -856,7 +856,9 @@ export default function TeamPage() {
                             )}
                             <DialogFooter>
                               <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
-                              <Button onClick={handleEditMember}>Save Changes</Button>
+                              <Button onClick={handleEditMember} className="bg-[#000068] hover:bg-[#030384]">
+                                Save Changes
+                                </Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
@@ -1023,7 +1025,7 @@ export default function TeamPage() {
                 <Button 
                   onClick={submitReport} 
                   disabled={isSubmittingReport || !reportForm.reason}
-                  className="min-w-[140px]"
+                  className="bg-[#000068] hover:bg-[#030384]"
                 >
                   {isSubmittingReport ? (
                     <>
@@ -1141,7 +1143,7 @@ export default function TeamPage() {
 
             <DialogFooter>
               <Button variant="outline" onClick={() => setReportDialogOpen(false)}>Close</Button>
-              <Button onClick={saveReportEdits}>
+              <Button onClick={saveReportEdits} className="bg-[#000068] hover:bg-[#030384]">
                 {isAdmin ? "Save Status" : "Save Changes"}
               </Button>
             </DialogFooter>
