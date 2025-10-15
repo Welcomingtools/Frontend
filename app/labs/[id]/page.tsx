@@ -567,7 +567,7 @@ export default function LabStatusPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-[#0f4d92] text-white p-4 sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" asChild className="text-white">
@@ -798,7 +798,7 @@ export default function LabStatusPage() {
         <Button
           onClick={testConnection}
           disabled={isLoading !== null}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
+          className="bg-[#000068] hover:bg-[#030384] text-white"
         >
           {isLoading === 'test' ? (
             <Loader2 className="h-4 w-4 animate-spin mr-2" />

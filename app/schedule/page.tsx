@@ -1019,7 +1019,7 @@ export default function SchedulePage() {
 
     if (!checkInAvailable && !isAdmin) {
       return (
-        <Button disabled className="flex-1">
+        <Button disabled className="flex-1 bg-[#000068]">
           Not Available
         </Button>
       );
@@ -1117,7 +1117,7 @@ export default function SchedulePage() {
           <Button 
             onClick={() => handleCheckIn(session.id)}
             disabled={isCheckingIn || !checkInAvailable}
-            className="flex-1"
+            className="flex-1 bg-[#000068] hover:bg-[#030384]"
           >
             {isCheckingIn ? (
               <>
