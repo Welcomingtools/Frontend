@@ -233,7 +233,7 @@ export default function Dashboard() {
             {userSession.role === "Admin" && (
              <div className="group bg-card rounded-lg border border-[#000068] shadow-md p-6 transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg">
                 <div className="flex items-center gap-4">
-                  <FileText className="h-8 w-8 text-[#000068]" />
+                  <FileText className="h-8 w-20 text-[#000068]" />
                   <div>
                     <h3 className="font-semibold">Reports</h3>
                     <p className="text-sm text-muted-foreground">View reports based on current session activity, staff activity and maintenance</p>
@@ -254,8 +254,7 @@ export default function Dashboard() {
           <div className="rounded-lg border bg-gradient-to-r from-[#000068] to-[#1e5fa8] shadow-md p-6">
             <h3 className="font-semibold text-white mb-2">About MSS Welcoming Team App</h3>
             <p className="text-sm text-white text-muted-foreground">
-              This application replaces the command-line welcometools with a user-friendly interface, allowing TLAs to
-              manage the TW Kambule Laboratories more efficiently. The app enables parallel operations, real-time status
+              This application allows Admins and TLAs to manage the TW Kambule Laboratories more efficiently. The app enables parallel operations, real-time status
               updates, and improved coordination between team members.
             </p>
           </div>
