@@ -1009,10 +1009,10 @@ const filteredReports = useMemo<Report[]>(() => {
         {/* FEEDBACK HUB */}
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>{isAdmin ? "Reports (All Users)" : "Feedback Hub"}</CardTitle>
+            <CardTitle className="flex flex-wrap items-centre items-end gap-3">{isAdmin ? "Reports (All Users)" : "Feedback Hub"}</CardTitle>
             
             {isAdmin && (
-                  <div className="flex flex-wrap items-centre items-end gap-3">
+                  <div className="flex flex-wrap items-centre items-end gap-3 ">
                     {/* Role filed on */}
                     <div className="min-w-[180px]">
                       <Label className="text-m mb-1 block">Role filed on</Label>
