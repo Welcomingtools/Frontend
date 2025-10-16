@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useMemo, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
@@ -64,6 +64,8 @@ type Report = {
   updated_at: string
 }
 
+type ReportStatus = Report['status'];
+
 // Utility function to generate random password
 function generateRandomPassword(length = 8) {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -94,19 +96,66 @@ export default function TeamPage() {
   const isAdmin = userSession?.role === "Admin"
   const isBCDR = userSession?.role === "BCDR"
   const isWelcoming = userSession?.role === "Welcoming Team"
-  
+
+  //Filtering of users for admins
+  const [roleFilter, setRoleFilter] = useState<'All' | 'Admin' | 'Welcoming Team' | 'BCDR'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Deactivated'>('All');  
+
   //For add members
   const [isSuccessOpen, setIsSuccessOpen] = useState(false);
-  const [createdInfo, setCreatedInfo] = useState<{ name: string; email: string; role: string; password:string } | null>(null);
+  const [createdInfo, setCreatedInfo] = useState<{ name: string; surname: string; email: string; role: string; password:string } | null>(null);
 
   // Filtered list of members to display
   const displayedMembers = isAdmin
     ? teamData
     : teamData.filter(m => m.role === userSession?.role)
 
+    const filteredMembers = useMemo(() => {
+  return displayedMembers.filter(m => {
+    const roleOk = roleFilter === 'All' || m.role === roleFilter;
+    const statusOk = statusFilter === 'All' || m.status === statusFilter;
+    return roleOk && statusOk;
+  });
+}, [displayedMembers, roleFilter, statusFilter]);
+
   // Feedback Hub state
   const [reports, setReports] = useState<Report[]>([])
   const [reportsLoading, setReportsLoading] = useState(true)
+
+  // Filter state for Feedback Hub
+const [filedOnRole, setFiledOnRole] = useState<'All' | string>('All');
+const [filedByRole, setFiledByRole] = useState<'All' | string>('All');
+const [issueType,   setIssueType]   = useState<'All' | string>('All');
+const [statusF,     setStatusF]     = useState<'All' | ReportStatus>('All');
+
+// Options (roles/issues are dynamic; status is fixed)
+const roleOnOptions = useMemo(
+  () => ['All', ...Array.from(new Set(reports.map((r: Report) => r.reported_user_role).filter(Boolean)))],
+  [reports]
+);
+const roleByOptions = useMemo(
+  () => ['All', ...Array.from(new Set(reports.map((r: Report) => r.reporter_role).filter(Boolean)))],
+  [reports]
+);
+const issueOptions  = useMemo(
+  () => ['All', ...Array.from(new Set(reports.map((r: Report) => r.reason).filter(Boolean)))],
+  [reports]
+);
+
+// Keep "as const" so TS preserves the literals
+const statusOptions = ['All', 'Under Review', 'Submitted', 'Resolved'] as const;
+
+// Filtering
+const filteredReports = useMemo<Report[]>(() => {
+  return reports.filter((r: Report) => {
+    const onOK = filedOnRole === 'All' || r.reported_user_role === filedOnRole;
+    const byOK = filedByRole === 'All' || r.reporter_role === filedByRole;
+    const isOK = issueType   === 'All' || r.reason === issueType;
+    const stOK = statusF     === 'All' || r.status === statusF;
+    return onOK && byOK && isOK && stOK;
+  });
+}, [reports, filedOnRole, filedByRole, issueType, statusF]);
+
 
   // Dialog state for viewing/editing a report
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
@@ -343,6 +392,7 @@ export default function TeamPage() {
       // Show success dialog
       setCreatedInfo({
         name: newMember.name.trim(),
+        surname: newMember.surname.trim(),
         email: newMember.email.trim(),
         role: newMember.role,
         password: "Sent via email"
@@ -756,9 +806,65 @@ export default function TeamPage() {
           </Alert>
         )}
         
+        {/* Team Members display */}
         <Card>
           <CardHeader>
             <CardTitle>Team Members</CardTitle>
+
+              {isAdmin && (
+                <div className="flex items-center gap-4 h-20">
+                  {/* Role Filter */}
+                  <div className="min-w-[200px]">
+                    <Label className="text-m mb-1 block">Filter by role</Label>
+                    <Select
+                      value={roleFilter}
+                      onValueChange={(v) => setRoleFilter(v as any)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All roles" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {/* Static roles */}
+                        <SelectItem value="All">All roles</SelectItem>
+                        <SelectItem value="Admin">Admin</SelectItem>
+                        <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
+                        <SelectItem value="BCDR">BCDR</SelectItem>
+
+                        {/* If using dynamic roles instead of static, replace the 4 items above with:
+                        {roles.map(r => (
+                          <SelectItem key={r} value={r}>{r === 'All' ? 'All roles' : r}</SelectItem>
+                        ))} */}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Status Filter */}
+                  <div className="min-w-[200px]">
+                    <Label className="text-m mb-1 block">Filter by status</Label>
+                    <Select
+                      value={statusFilter}
+                      onValueChange={(v) => setStatusFilter(v as any)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All">All statuses</SelectItem>
+                        <SelectItem value="Active">Active</SelectItem>
+                        <SelectItem value="Deactivated">Deactivated</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => { setRoleFilter('All'); setStatusFilter('All'); }}
+                    className ="flex items-center ml-4 mt-4 px-4 py-2"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -766,13 +872,13 @@ export default function TeamPage() {
                 <Loader2 className="h-8 w-8 animate-spin text-[#0f4d92]" />
                 <span className="ml-2">Loading team members...</span>
               </div>
-            ) : displayedMembers.length === 0 ? (
+            ) : filteredMembers.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No team members found.
+                {isAdmin ? 'No team members match the selected filters.' : 'No team members found.'}
               </div>
             ) : (
               <div className="space-y-4">
-                {displayedMembers.map((member) => (
+                {filteredMembers.map((member) => (
                   <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
                     <div className="flex items-center gap-4">
                       <Avatar className="h-10 w-10">
@@ -795,7 +901,7 @@ export default function TeamPage() {
 
                     {/* Actions for Admins */}
                     {isAdmin && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-6">
                         
                         {/* Edit */}
                         <Dialog>
@@ -822,8 +928,8 @@ export default function TeamPage() {
                                 <div className="grid gap-2">
                                   <Label htmlFor="edit-name">Surname</Label>
                                   <Input
-                                    id="edit-name"
-                                    value={editMember.name}
+                                    id="edit-surname"
+                                    value={editMember.surname}
                                     onChange={e => setEditMember({ ...editMember, surname: e.target.value })}
                                   />
                                 </div>
@@ -904,6 +1010,60 @@ export default function TeamPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>{isAdmin ? "Reports (All Users)" : "Feedback Hub"}</CardTitle>
+            
+            {isAdmin && (
+                  <div className="flex flex-wrap items-centre items-end gap-3">
+                    {/* Role filed on */}
+                    <div className="min-w-[180px]">
+                      <Label className="text-m mb-1 block">Role filed on</Label>
+                      <Select value={filedOnRole} onValueChange={(v) => setFiledOnRole(v)}>
+                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          {roleOnOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Role filed by */}
+                    <div className="min-w-[180px]">
+                      <Label className="text-m mb-1 block">Role filed by</Label>
+                      <Select value={filedByRole} onValueChange={(v) => setFiledByRole(v)}>
+                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          {roleByOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Issue type */}
+                    <div className="min-w-[180px]">
+                      <Label className="text-m mb-1 block">Issue type</Label>
+                      <Select value={issueType} onValueChange={(v) => setIssueType(v)}>
+                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          {issueOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Status */}
+                    <div className="min-w-[180px]">
+                      <Label className="text-m mb-1 block">Status</Label>
+                      <Select value={statusF} onValueChange={(v) => setStatusF(v as ReportStatus | 'All')}>
+                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                        <SelectContent>
+                          {statusOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Button variant="outline" onClick={() => {
+                      setFiledOnRole('All'); setFiledByRole('All'); setIssueType('All'); setStatusF('All');
+                    }}>
+                      Clear
+                    </Button>
+                  </div>
+                )}
           </CardHeader>
           <CardContent>
             {reportsLoading ? (
@@ -911,13 +1071,13 @@ export default function TeamPage() {
                 <Loader2 className="h-5 w-5 animate-spin text-[#0f4d92] mr-2" />
                 <span>Loading reports…</span>
               </div>
-            ) : reports.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {isAdmin ? "No reports have been filed yet." : "You haven't submitted any reports yet."}
-              </p>
+            ) : filteredReports.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {isAdmin ? "No reports match the selected filters." : "You haven't submitted any reports yet."}
+                </p>
             ) : (
               <div className="space-y-3">
-                {reports.map((r) => (
+                {filteredReports.map((r: Report) => (
                   <div
                     key={r.id}
                     className="flex items-center justify-between border rounded-md p-3"
@@ -1162,8 +1322,8 @@ export default function TeamPage() {
 
             <div className="mt-2 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Full name</span>
-                <span className="font-medium">{createdInfo?.name}</span>
+                <span className="text-sm text-muted-foreground">Name & Surname</span>
+                <span className="font-medium">{createdInfo?.name} {createdInfo?.surname}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Email</span>
