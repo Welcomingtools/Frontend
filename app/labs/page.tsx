@@ -11,12 +11,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2, RefreshCw } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Download, RotateCcw, FileText, Calendar, Eye, Loader2, RefreshCw, XCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase" // Import your Supabase client
 
 // Server configuration - SAME AS LabStatusPage
-const SERVER_BASE_URL = "http://10.100.15.252:3001"
+const SERVER_BASE_URL = process.env.NEXT_PUBLIC_SERVER_BASE_URL 
 
 // Global cache for lab data
 interface LabCache {
@@ -118,6 +117,24 @@ interface StudentAllocation {
   position: number
 }
 
+// Machine ID normalization function
+const normalizeMachineId = (id: string): string => {
+  if (!id || typeof id !== 'string') return ''
+  
+  let normalizedId = id.toLowerCase().trim().replace(/\s+/g, '')
+  
+  // Standardize format to match what we generate
+  if (!normalizedId.startsWith('twk')) {
+    const matches = normalizedId.match(/(\d+)[-\s]?(\d+)[-\s]?(\d+)/)
+    if (matches) {
+      const [, labNum, row, pos] = matches
+      normalizedId = `twk${labNum.padStart(3, '0')}-${row.padStart(2, '0')}-${pos.padStart(2, '0')}`
+    }
+  }
+  
+  return normalizedId
+}
+
 export default function LabsOverview() {
   const [labs, setLabs] = useState<Lab[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -125,7 +142,6 @@ export default function LabsOverview() {
   const [studentNumbers, setStudentNumbers] = useState("")
   const [allocationStrategy, setAllocationStrategy] = useState<"balanced" | "fill-first" | "preference" | "select-manually">("fill-first")
   const [allocations, setAllocations] = useState<StudentAllocation[]>([])
-  const [error, setError] = useState("")
   const [examDate, setExamDate] = useState(new Date().toISOString().split('T')[0])
   const [examType, setExamType] = useState<"exam" | "test">("exam")
   const [examName, setExamName] = useState("")
@@ -134,6 +150,8 @@ export default function LabsOverview() {
   const [inputMethod, setInputMethod] = useState<"manual" | "csv">("manual")
   const [selectedLabs, setSelectedLabs] = useState<string[]>([])
   const [isSaving, setIsSaving] = useState(false)
+  // NEW: Add user role state
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   // Lab capacity data - SAME AS LabStatusPage
   const labCapacities: Record<string, number> = {
@@ -148,85 +166,165 @@ export default function LabsOverview() {
   }
 
   // Function to save seating plan to Supabase
-  // Function to save seating plan to Supabase
-// Function to save seating plan to Supabase
-// Function to save seating plan to Supabase
-const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
-  setIsSaving(true)
-  try {
-    // Get the current user session
-    const userSessionStr = sessionStorage.getItem('userSession')
-    if (!userSessionStr) {
-      throw new Error("User not authenticated")
+  const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
+    setIsSaving(true)
+    try {
+      // Get the current user session
+      const userSessionStr = sessionStorage.getItem('userSession')
+      if (!userSessionStr) {
+        throw new Error("User not authenticated")
+      }
+      
+      const userSession = JSON.parse(userSessionStr)
+      const userEmail = userSession.email
+      
+      if (!userEmail) {
+        throw new Error("User email not found in session")
+      }
+
+      // Fetch the user's database ID using their email
+      const { data: userData, error: userError } = await supabase
+        .from('user')
+        .select('id')
+        .eq('email', userEmail)
+        .single()
+
+      if (userError) {
+        console.error('Error fetching user data:', userError)
+        throw new Error(`Failed to find user in database: ${userError.message}`)
+      }
+
+      if (!userData || !userData.id) {
+        throw new Error("User not found in user table")
+      }
+
+      const adminId = userData.id
+
+      // Prepare data for insertion - REMOVED machine_id completely
+      const seatingData = allocations.map(allocation => ({
+        admin_id: adminId,
+        lab_id: allocation.labId,
+        student_number: allocation.studentNumber,
+        assessment_type: examType,
+        assessment_name: examName,
+        assessment_date: examDate,
+      }))
+
+      // Insert data into Supabase
+      const { data, error: supabaseError } = await supabase
+        .from('seating')
+        .insert(seatingData)
+        .select()
+
+      if (supabaseError) {
+        console.error('Supabase error details:', supabaseError)
+        throw new Error(supabaseError.message)
+      }
+
+      showSuccessToast(
+        "Seating Plan Saved", 
+        "Seating plan has been successfully saved to the database"
+      )
+      return data
+    } catch (error: any) {
+      console.error("Error saving seating plan:", error)
+      showErrorToast("Save Failed", error.message || "Failed to save seating plan to database")
+      throw error
+    } finally {
+      setIsSaving(false)
     }
-    
-    const userSession = JSON.parse(userSessionStr)
-    const userEmail = userSession.email
-    
-    if (!userEmail) {
-      throw new Error("User email not found in session")
-    }
-
-    // Fetch the user's database ID using their email
-    const { data: userData, error: userError } = await supabase
-      .from('user')
-      .select('id')
-      .eq('email', userEmail)
-      .single()
-
-    if (userError) {
-      console.error('Error fetching user data:', userError)
-      throw new Error(`Failed to find user in database: ${userError.message}`)
-    }
-
-    if (!userData || !userData.id) {
-      throw new Error("User not found in user table")
-    }
-
-    const adminId = userData.id
-    console.log('Found admin ID:', adminId)
-
-    // Prepare data for insertion - REMOVED machine_id completely
-    const seatingData = allocations.map(allocation => ({
-      admin_id: adminId,
-      lab_id: allocation.labId,
-      student_number: allocation.studentNumber,
-      assessment_type: examType,
-      assessment_name: examName,
-      assessment_date: examDate,
-      //row: allocation.row,
-      //position: allocation.position
-    }))
-
-    console.log('Sample seating data:', seatingData[0]) // Debug log
-
-    // Insert data into Supabase
-    const { data, error: supabaseError } = await supabase
-      .from('seating')
-      .insert(seatingData)
-      .select()
-
-    if (supabaseError) {
-      console.error('Supabase error details:', supabaseError)
-      throw new Error(supabaseError.message)
-    }
-
-    console.log('Successfully inserted seating data:', data)
-    showSuccessToast(
-      "Seating Plan Saved", 
-      "Seating plan has been successfully saved to the database"
-    )
-    return data
-  } catch (error: any) {
-    console.error("Error saving seating plan:", error)
-    showErrorToast("Save Failed", error.message || "Failed to save seating plan to database")
-    throw error
-  } finally {
-    setIsSaving(false)
   }
-}
 
-  // NEW: Function to fetch machine status from server
+  // Toast notification functions
+  const showSuccessToast = (title: string, description: string) => {
+    const toastDiv = document.createElement('div')
+    toastDiv.className = 'fixed top-4 right-4 bg-green-600 text-white p-4 rounded-lg shadow-lg z-50 max-w-md transform transition-all duration-300 ease-in-out translate-x-full'
+    toastDiv.innerHTML = `
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <div>
+          <div class="font-semibold text-sm">${title}</div>
+          <div class="text-sm opacity-90 mt-1">${description}</div>
+        </div>
+        <button class="ml-auto hover:bg-white/10 rounded p-1 transition-colors" onclick="this.parentElement.parentElement.remove()">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+    `
+    document.body.appendChild(toastDiv)
+    
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(0)'
+    }, 100)
+    
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(100%)'
+      setTimeout(() => {
+        if (document.body.contains(toastDiv)) {
+          document.body.removeChild(toastDiv)
+        }
+      }, 300)
+    }, 10000)
+  }
+
+  const showErrorToast = (title: string, description: string) => {
+    const toastDiv = document.createElement('div')
+    toastDiv.className = 'fixed top-4 right-4 bg-red-600 text-white p-4 rounded-lg shadow-lg z-50 max-w-md transform transition-all duration-300 ease-in-out translate-x-full'
+    toastDiv.innerHTML = `
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <div>
+          <div class="font-semibold text-sm">${title}</div>
+          <div class="text-sm opacity-90 mt-1">${description}</div>
+        </div>
+        <button class="ml-auto hover:bg-white/10 rounded p-1 transition-colors" onclick="this.parentElement.parentElement.remove()">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+    `
+    document.body.appendChild(toastDiv)
+    
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(0)'
+    }, 100)
+    
+    setTimeout(() => {
+      toastDiv.style.transform = 'translateX(100%)'
+      setTimeout(() => {
+        if (document.body.contains(toastDiv)) {
+          document.body.removeChild(toastDiv)
+        }
+      }, 300)
+    }, 10000)
+  }
+
+  // Function to check if user can access lab dashboard
+  const canAccessLabDashboard = (): boolean => {
+    if (userRole === null) return false
+    if (userRole === "Welcoming Team") return false
+    if (userRole === "BCDR" || userRole === "Admin") return true
+    return false
+  }
+
+  // Function to shuffle array randomly
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+    return shuffled
+  }
+
+  // Function to fetch machine status from server
   const fetchLabMachineStatus = async (labId: string): Promise<{ 
     machinesUp: number; 
     machinesDown: number; 
@@ -245,34 +343,31 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
         const data = await response.json()
         const totalMachines = labCapacities[labId] || 50
         
+        let onlineMachineIds: string[] = []
+        
         if (data.success && data.machines && Array.isArray(data.machines)) {
-          const onlineMachineIds = data.machines
-          return {
-            machinesUp: onlineMachineIds.length,
-            machinesDown: totalMachines - onlineMachineIds.length,
-            lastUpdated: new Date().toLocaleTimeString(),
-            onlineMachineIds
-          }
+          onlineMachineIds = data.machines
         } else if (data.success && Array.isArray(data.output)) {
-          const cleanOutput = data.output.map((line: string) => 
+          onlineMachineIds = data.output.map((line: string) => 
             line.replace(/\u001b\[\?2004[lh]|\r/g, '').trim()
           ).filter((line: string) => line.length > 0)
-          
-          return {
-            machinesUp: cleanOutput.length,
-            machinesDown: totalMachines - cleanOutput.length,
-            lastUpdated: new Date().toLocaleTimeString(),
-            onlineMachineIds: cleanOutput
-          }
         }
+        
+        // NORMALIZE MACHINE IDs
+        onlineMachineIds = onlineMachineIds.map(id => normalizeMachineId(id)).filter(id => id.length > 0)
+        
+        return {
+          machinesUp: onlineMachineIds.length,
+          machinesDown: totalMachines - onlineMachineIds.length,
+          lastUpdated: new Date().toLocaleTimeString(),
+          onlineMachineIds
+        }
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
-      
-      // Fallback to previous values if request fails
-      throw new Error('Failed to fetch machine status')
-      
+        
     } catch (error) {
       console.error(`Failed to fetch status for Lab ${labId}:`, error)
-      // Return current values as fallback
       const cache = getLabsCache()
       const cachedLab = cache.data.find(l => l.id === labId)
       if (cachedLab) {
@@ -284,7 +379,6 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
         }
       }
       
-      // Final fallback
       const totalMachines = labCapacities[labId] || 50
       return {
         machinesUp: 0,
@@ -295,103 +389,148 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
     }
   }
 
-  // Generate machines for each lab with the corrected TWK naming convention
-  const generateMachines = (labId: string, totalMachines: number, onlineMachineIds: string[]): Machine[] => {
-    const machines: Machine[] = []
-    let machineIndex = 0
+  
+const generateMachines = (labId: string, totalMachines: number, onlineMachineIds: string[]): Machine[] => {
+  const machines: Machine[] = []
+  let machineIndex = 0
 
-    if (labId === "004" || labId === "005" || labId === "006") {
-      for (let row = 1; row <= 10; row++) {
-        for (let position = 1; position <= 10; position++) {
-          machineIndex++
-          const machineId = `twk${labId}-${String(row).padStart(2, "0")}-${String(position).padStart(2, "0")}`
-          machines.push({
-            id: machineId,
-            labId,
-            row,
-            position,
-            isWorking: onlineMachineIds.includes(machineId),
-          })
-        }
-      }
-    } else if (labId === "106") {
-      const lab106Layout = [
-        { row: 1, positions: 2 },
-        { row: 2, positions: 1 },
-        { row: 3, positions: 2 },
-        { row: 4, positions: 3 },
-        { row: 5, positions: 5 },
-        { row: 6, positions: 3 },
-      ]
+  // NORMALIZE online machine IDs for comparison
+  const normalizedOnlineIds = onlineMachineIds.map(id => normalizeMachineId(id)).filter(id => id.length > 0)
 
-      for (const rowConfig of lab106Layout) {
-        for (let position = 1; position <= rowConfig.positions; position++) {
-          machineIndex++
-          const machineId = `twk${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`
-          machines.push({
-            id: machineId,
-            labId,
-            row: rowConfig.row,
-            position,
-            isWorking: onlineMachineIds.includes(machineId),
-          })
-        }
-      }
-    } else {
-      const layouts = {
-        "108": [
-          { row: 1, seats: 9 },
-          { row: 2, seats: 9 },
-          { row: 3, seats: 8 },
-          { row: 4, seats: 8 },
-          { row: 5, seats: 8 },
-          { row: 6, seats: 8 },
-        ],
-        "109": [
-          { row: 1, seats: 9 },
-          { row: 2, seats: 9 },
-          { row: 3, seats: 8 },
-          { row: 4, seats: 8 },
-          { row: 5, seats: 8 },
-          { row: 6, seats: 8 },
-        ],
-        "110": [
-          { row: 1, seats: 9 },
-          { row: 2, seats: 9 },
-          { row: 3, seats: 8 },
-          { row: 4, seats: 8 },
-          { row: 5, seats: 8 },
-          { row: 6, seats: 8 },
-        ],
-        "111": [
-          { row: 1, seats: 9 },
-          { row: 2, seats: 9 },
-          { row: 3, seats: 8 },
-          { row: 4, seats: 8 },
-          { row: 5, seats: 8 },
-          { row: 6, seats: 8 },
-        ],
-      }
+  const generateMachineId = (labId: string, row: number, position: number): string => {
+    return `twk${labId}-${String(row).padStart(2, "0")}-${String(position).padStart(2, "0")}`.toLowerCase()
+  }
 
-      const layout = layouts[labId as keyof typeof layouts] || []
-
-      for (const rowConfig of layout) {
-        for (let position = 1; position <= rowConfig.seats; position++) {
-          machineIndex++
-          const machineId = `twk${labId}-${String(rowConfig.row).padStart(2, "0")}-${String(position).padStart(2, "0")}`
-          machines.push({
-            id: machineId,
-            labId,
-            row: rowConfig.row,
-            position,
-            isWorking: onlineMachineIds.includes(machineId),
-          })
-        }
+  if (labId === "004" || labId === "005") {
+    // Standard 10x10 layout for 004 and 005
+    for (let row = 1; row <= 10; row++) {
+      for (let position = 1; position <= 10; position++) {
+        machineIndex++
+        const machineId = generateMachineId(labId, row, position)
+        const isWorking = normalizedOnlineIds.includes(machineId)
+        
+        machines.push({
+          id: machineId,
+          labId,
+          row,
+          position,
+          isWorking,
+        })
       }
     }
+  } else if (labId === "006") {
+    // CORRECTED LAYOUT FOR LAB 006
+    const lab006Layout = [
+      { row: 1, positions: 11 },  // Row 1: 11 machines
+      { row: 2, positions: 11 },  // Row 2: 11 machines  
+      { row: 3, positions: 11 },  // Row 3: 11 machines
+      { row: 4, positions: 10 },  // Row 4: 10 machines
+      { row: 5, positions: 7 },   // Row 5: 7 machines
+      { row: 6, positions: 10 },  // Row 6: 10 machines
+      { row: 7, positions: 10 },  // Row 7: 10 machines
+      { row: 8, positions: 10 },  // Row 8: 10 machines
+      { row: 9, positions: 10 },  // Row 9: 10 machines
+      { row: 10, positions: 10 }, // Row 10: 10 machines
+    ]
 
-    return machines
+    for (const rowConfig of lab006Layout) {
+      for (let position = 1; position <= rowConfig.positions; position++) {
+        machineIndex++
+        const machineId = generateMachineId(labId, rowConfig.row, position)
+        const isWorking = normalizedOnlineIds.includes(machineId)
+        
+        machines.push({
+          id: machineId,
+          labId,
+          row: rowConfig.row,
+          position,
+          isWorking,
+        })
+      }
+    }
+  } else if (labId === "106") {
+    const lab106Layout = [
+      { row: 1, positions: 2 },
+      { row: 2, positions: 1 },
+      { row: 3, positions: 2 },
+      { row: 4, positions: 3 },
+      { row: 5, positions: 5 },
+      { row: 6, positions: 3 },
+    ]
+
+    for (const rowConfig of lab106Layout) {
+      for (let position = 1; position <= rowConfig.positions; position++) {
+        machineIndex++
+        const machineId = generateMachineId(labId, rowConfig.row, position)
+        const isWorking = normalizedOnlineIds.includes(machineId)
+        
+        machines.push({
+          id: machineId,
+          labId,
+          row: rowConfig.row,
+          position,
+          isWorking,
+        })
+      }
+    }
+  } else {
+    // CORRECTED LAYOUT FOR LABS 108-111 - EACH LAB HAS ITS OWN LAYOUT
+    const layouts = {
+      "108": [  // Lab 108: 9,9,8,8,8,8 = 50 machines
+        { row: 1, seats: 9 },
+        { row: 2, seats: 9 },
+        { row: 3, seats: 8 },
+        { row: 4, seats: 8 },
+        { row: 5, seats: 8 },
+        { row: 6, seats: 8 },
+      ],
+      "109": [  // Lab 109: 8,8,8,8,9,9 = 50 machines
+        { row: 1, seats: 8 },
+        { row: 2, seats: 8 },
+        { row: 3, seats: 8 },
+        { row: 4, seats: 8 },
+        { row: 5, seats: 9 },
+        { row: 6, seats: 9 },
+      ],
+      "110": [  // Lab 110: 9,9,8,8,8,8 = 50 machines
+        { row: 1, seats: 9 },
+        { row: 2, seats: 9 },
+        { row: 3, seats: 8 },
+        { row: 4, seats: 8 },
+        { row: 5, seats: 8 },
+        { row: 6, seats: 8 },
+      ],
+      "111": [  // Lab 111: 8,8,8,8,9,9 = 50 machines
+        { row: 1, seats: 8 },
+        { row: 2, seats: 8 },
+        { row: 3, seats: 8 },
+        { row: 4, seats: 8 },
+        { row: 5, seats: 9 },
+        { row: 6, seats: 9 },
+      ],
+    }
+
+    const layout = layouts[labId as keyof typeof layouts] || []
+
+    for (const rowConfig of layout) {
+      for (let position = 1; position <= rowConfig.seats; position++) {
+        machineIndex++
+        const machineId = generateMachineId(labId, rowConfig.row, position)
+        const isWorking = normalizedOnlineIds.includes(machineId)
+        
+        machines.push({
+          id: machineId,
+          labId,
+          row: rowConfig.row,
+          position,
+          isWorking,
+        })
+      }
+    }
   }
+
+  return machines
+}
 
   useEffect(() => {
     const cache = getLabsCache()
@@ -399,10 +538,20 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
     if (cache.isInitialized && cache.data.length > 0) {
       setLabs(cache.data)
       setIsLoading(false)
-      return
+    } else {
+      fetchAllLabsData()
     }
 
-    fetchAllLabsData()
+    // Get user role from session storage
+    const userSessionStr = sessionStorage.getItem('userSession')
+    if (userSessionStr) {
+      try {
+        const userSession = JSON.parse(userSessionStr)
+        setUserRole(userSession.role || null)
+      } catch (error) {
+        console.error('Error parsing user session:', error)
+      }
+    }
   }, [])
 
   const fetchAllLabsData = async () => {
@@ -584,41 +733,6 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
     }
   }
 
-  const showSuccessToast = (title: string, description: string) => {
-    const toastDiv = document.createElement('div')
-    toastDiv.className = 'fixed top-4 right-4 bg-green-600 text-white p-4 rounded-lg shadow-lg z-50 max-w-md transform transition-all duration-300 ease-in-out'
-    toastDiv.innerHTML = `
-      <div class="flex items-start gap-3">
-        <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-        </svg>
-        <div>
-          <div class="font-semibold text-sm">${title}</div>
-          <div class="text-sm opacity-90 mt-1">${description}</div>
-        </div>
-      </div>
-    `
-    document.body.appendChild(toastDiv)
-    
-    setTimeout(() => {
-      toastDiv.style.transform = 'translateX(0)'
-    }, 100)
-    
-    setTimeout(() => {
-      toastDiv.style.transform = 'translateX(100%)'
-      setTimeout(() => {
-        if (document.body.contains(toastDiv)) {
-          document.body.removeChild(toastDiv)
-        }
-      }, 300)
-    }, 5000)
-  }
-
-  const showErrorToast = (title: string, description: string) => {
-    setError(`${title}: ${description}`)
-    setTimeout(() => setError(""), 5000)
-  }
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Available":
@@ -649,18 +763,18 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
     }
   }
 
+  // FIXED: Get available machines - all working machines without assignments are available
   const getAvailableMachines = (lab: Lab): Machine[] => {
     if (lab.status === "Offline") return []
-
-    const currentlyBooked = lab.currentBooking?.studentsBooked || 0
-    const workingMachines = lab.machines.filter((m) => m.isWorking && !m.assignedStudent)
-
-    return workingMachines.slice(currentlyBooked)
+    return lab.machines.filter((m) => m.isWorking && !m.assignedStudent)
   }
 
-  const getNextAvailableMachine = (lab: Lab): Machine | null => {
+  // Get random available machine
+  const getRandomAvailableMachine = (lab: Lab): Machine | null => {
     const availableMachines = getAvailableMachines(lab)
-    return availableMachines.length > 0 ? availableMachines[0] : null
+    if (availableMachines.length === 0) return null
+    const shuffledMachines = shuffleArray(availableMachines)
+    return shuffledMachines[0]
   }
 
   const calculateAvailableSeats = (lab: Lab) => {
@@ -822,19 +936,22 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
       labsToUse = updatedLabs.filter(lab => lab.status !== "Offline")
     }
 
+    // Shuffle students for random allocation across all strategies
+    const shuffledStudents = shuffleArray(students)
+
     switch (allocationStrategy) {
       case "balanced":
       case "select-manually": // Use balanced strategy for manual selection too
         const availableLabs = labsToUse.filter((lab) => calculateAvailableSeats(lab) > 0)
         let labIndex = 0
 
-        for (const student of students) {
+        for (const student of shuffledStudents) {
           let allocated = false
           let attempts = 0
 
           while (!allocated && attempts < availableLabs.length) {
             const lab = availableLabs[labIndex % availableLabs.length]
-            const machine = getNextAvailableMachine(lab)
+            const machine = getRandomAvailableMachine(lab)
 
             if (machine) {
               machine.assignedStudent = student
@@ -862,11 +979,11 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
         break
 
       case "fill-first":
-        for (const student of students) {
+        for (const student of shuffledStudents) {
           let allocated = false
 
           for (const lab of labsToUse) {
-            const machine = getNextAvailableMachine(lab)
+            const machine = getRandomAvailableMachine(lab)
             if (machine) {
               machine.assignedStudent = student
 
@@ -894,11 +1011,11 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
       case "preference":
         const sortedLabs = [...labsToUse].sort((a, b) => calculateAvailableSeats(b) - calculateAvailableSeats(a))
 
-        for (const student of students) {
+        for (const student of shuffledStudents) {
           let allocated = false
 
           for (const lab of sortedLabs) {
-            const machine = getNextAvailableMachine(lab)
+            const machine = getRandomAvailableMachine(lab)
             if (machine) {
               machine.assignedStudent = student
 
@@ -926,7 +1043,6 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
 
     setLabs(updatedLabs)
     setAllocations(newAllocations)
-    setError("")
 
     setLabsCache(updatedLabs)
 
@@ -940,8 +1056,6 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
         } labs. Data has been saved to the database. You can now export to PDF.`
       )
     } catch (error) {
-      // Error is already handled in saveSeatingPlanToDatabase
-      // Still show success for generation but mention database save failed
       showSuccessToast(
         "Seating Plan Generated!",
         `${newAllocations.length} students allocated across ${
@@ -966,7 +1080,6 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
     setStudentNumbers("")
     setCsvFile(null)
     setImportedStudents([])
-    setError("")
 
     setLabsCache(clearedLabs)
 
@@ -1250,12 +1363,6 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
       </header>
 
       <main className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription className="text-sm">{error}</AlertDescription>
-          </Alert>
-        )}
-
         {getLabsCache().isInitialized && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1331,7 +1438,7 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
               </div>
             </div>
 
-            {/* NEW: Only show lab selection when manual strategy is selected */}
+            {/* Only show lab selection when manual strategy is selected */}
             {allocationStrategy === "select-manually" && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
                 <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2 text-sm sm:text-base">
@@ -1680,32 +1787,46 @@ const saveSeatingPlanToDatabase = async (allocations: StudentAllocation[]) => {
                       </div>
                     )}
                   </div>
-                  <Link 
-                    href={{
-                      pathname: `/labs/${lab.id}`,
-                      query: { 
-                        up: lab.machinesUp,
-                        down: lab.machinesDown,
-                        total: lab.totalMachines,
-                        loading: lab.isLoading ? 'true' : 'false'
-                      }
-                    }} 
-                    className={`block ${lab.isLoading ? 'pointer-events-none' : ''}`}
-                  >
-                    <Button 
-                      className="w-full bg-[#000068] **group-hover: bg-gradient-to-r from-[#030384] to-[#1e5fa8]**"
-                      disabled={lab.isLoading}
+
+                  {/* Lab Dashboard button with role-based access control */}
+                  {canAccessLabDashboard() ? (
+                    <Link 
+                      href={{
+                        pathname: `/labs/${lab.id}`,
+                        query: { 
+                          up: lab.machinesUp,
+                          down: lab.machinesDown,
+                          total: lab.totalMachines,
+                          loading: lab.isLoading ? 'true' : 'false'
+                        }
+                      }} 
+                      className={`block ${lab.isLoading ? 'pointer-events-none' : ''}`}
                     >
-                      {lab.isLoading ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        "Lab Dashboard"
-                      )}
-                    </Button>
-                  </Link>
+                      <Button 
+                        className="w-full bg-[#000068] hover:bg-[#030384]"
+                        disabled={lab.isLoading}
+                      >
+                        {lab.isLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Loading...
+                          </>
+                        ) : (
+                          "Lab Dashboard"
+                        )}
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Tooltip content="Access restricted: Welcoming Team cannot access lab dashboards">
+                      <Button 
+                        className="w-full bg-gray-400 cursor-not-allowed"
+                        disabled={true}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        Lab Dashboard
+                      </Button>
+                    </Tooltip>
+                  )}
                 </CardContent>
               </Card>
             )
