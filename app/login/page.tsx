@@ -89,7 +89,7 @@ export default function LoginPage() {
             <div className="relative">
               <div className="w-40 h-40 bg-white rounded-2xl flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform duration-300 border border-gray-200 p-4">
                 <img 
-                  src="/images/crest.png" 
+                  src="/images/TechTonic  MSS Poster & Brochure.png" 
                   alt="University of the Witwatersrand Crest" 
                   className="w-full h-full object-contain"
                 />
