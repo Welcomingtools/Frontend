@@ -94,6 +94,7 @@ const statusOptions = [
   { id: "reported", name: "Reported", color: "bg-blue-100 text-blue-800" },
   { id: "in-progress", name: "In Progress", color: "bg-yellow-100 text-yellow-800" },
   { id: "resolved", name: "Resolved", color: "bg-green-100 text-green-800" },
+  { id: "archived", name: "Archived", color: "bg-gray-100 text-gray-800" },
 ]
 
 // Issue interface for Supabase data - Updated to remove assigned_to and add resolved_by
@@ -152,6 +153,9 @@ export default function MaintenancePage() {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
+  const [activeTab, setActiveTab] = useState("open")
 
   // New issue form state
   const [newIssue, setNewIssue] = useState({
@@ -336,6 +340,11 @@ export default function MaintenancePage() {
 
   // Filter issues based on selected filters and search query
   const filteredIssues = issues.filter((issue) => {
+    // Hide archived issues from all views
+    if (issue.status === "archived") {
+      return false
+    }
+
     // Apply status filter
     if (statusFilter !== "all" && issue.status !== statusFilter) {
       return false
@@ -366,6 +375,9 @@ export default function MaintenancePage() {
 
   // Get open issues (not resolved)
   const openIssues = filteredIssues.filter(issue => issue.status !== "resolved")
+
+  // Get resolved issues
+  const resolvedIssues = filteredIssues.filter(issue => issue.status === "resolved")
 
   // Handle form changes with validation clearing
   const handleFormChange = (field: string, value: string) => {
@@ -526,6 +538,62 @@ export default function MaintenancePage() {
     }
   }
 
+  // Clear all resolved issues by archiving them (only for BCDR/Admin)
+  const handleClearResolvedIssues = async () => {
+    if (!canUpdateStatus()) {
+      return
+    }
+
+    setIsClearing(true)
+    try {
+      // Get all resolved issue IDs
+      const resolvedIssueIds = issues
+        .filter(issue => issue.status === "resolved")
+        .map(issue => issue.id)
+
+      if (resolvedIssueIds.length === 0) {
+        setValidationErrors({ general: "No resolved issues to clear." })
+        setIsClearDialogOpen(false)
+        setIsClearing(false)
+        return
+      }
+
+      // Archive resolved issues by updating their status to "archived"
+      const { error } = await supabase
+        .from('maintenance_issues')
+        .update({ 
+          status: 'archived',
+          updated_at: new Date().toISOString()
+        })
+        .in('id', resolvedIssueIds)
+
+      if (error) {
+        throw error
+      }
+
+      // Update local state - filter out archived issues
+      setIssues(prev => prev.map(issue => 
+        resolvedIssueIds.includes(issue.id) 
+          ? { ...issue, status: 'archived', updated_at: new Date().toISOString() }
+          : issue
+      ))
+
+      // Show success message
+      setShowSuccessMessage(true)
+      setSuccessMessage(`Successfully archived ${resolvedIssueIds.length} resolved issue${resolvedIssueIds.length > 1 ? 's' : ''}!`)
+      setTimeout(() => setShowSuccessMessage(false), 3000)
+
+      // Close dialog
+      setIsClearDialogOpen(false)
+
+    } catch (err) {
+      console.error("Error archiving resolved issues:", err)
+      setValidationErrors({ general: "Failed to archive resolved issues. Please try again." })
+    } finally {
+      setIsClearing(false)
+    }
+  }
+
   // Get status badge color
   const getStatusColor = (status: string) => {
     const statusOption = statusOptions.find((option) => option.id === status)
@@ -562,7 +630,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white h-20 flex items-center p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button 
@@ -846,12 +914,56 @@ export default function MaintenancePage() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="open">
+        <Tabs defaultValue="open" value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-3 mb-4">
             <TabsTrigger value="all">All Issues</TabsTrigger>
             <TabsTrigger value="open">Open Issues</TabsTrigger>
             <TabsTrigger value="resolved">Resolved Issues</TabsTrigger>
           </TabsList>
+          
+          {/* Archive Resolved Issues Button - only shows on resolved tab for BCDR and Admin */}
+          {canUpdateStatus() && activeTab === "resolved" && resolvedIssues.length > 0 && (
+            <div className="flex justify-end mb-4">
+              <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    Archive Resolved Issues
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Archive Resolved Issues</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to archive all resolved issues? They will be hidden from view but remain in the database and can be restored if needed.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      This will archive {resolvedIssues.length} resolved issue{resolvedIssues.length > 1 ? 's' : ''}. Archived issues are hidden from all views but not permanently deleted.
+                    </AlertDescription>
+                  </Alert>
+                  <DialogFooter>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setIsClearDialogOpen(false)}
+                      disabled={isClearing}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleClearResolvedIssues}
+                      disabled={isClearing}
+                      className="bg-[#000068] hover:bg-[#030384]"
+                    >
+                      {isClearing ? "Archiving..." : "Archive All Resolved"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          )}
 
           <TabsContent value="all">
             <div className="space-y-4">
@@ -867,8 +979,8 @@ export default function MaintenancePage() {
                       }
                     </p>
                     {canReportIssue() && (
-                      <Button className="bg-[#000068] hover:bg-[#030384] " onClick={() => setIsAddDialogOpen(true)}>
-                        <Plus className=" h-4 w-4 mr-2 bg-[#000068] hover:bg-[#030384]" />
+                      <Button className="bg-[#000068] hover:bg-[#030384]" onClick={() => setIsAddDialogOpen(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
                         Report New Issue
                       </Button>
                     )}
@@ -935,8 +1047,8 @@ export default function MaintenancePage() {
                       }
                     </p>
                     {canReportIssue() && (
-                      <Button onClick={() => setIsAddDialogOpen(true)}>
-                        <Plus className="bg-[#000068] hover:bg-[#030384] h-4 w-4 mr-2 bg-[#000068] hover:bg-[#030384]" />
+                      <Button className="bg-[#000068] hover:bg-[#030384]" onClick={() => setIsAddDialogOpen(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
                         Report New Issue
                       </Button>
                     )}

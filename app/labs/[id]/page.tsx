@@ -35,7 +35,7 @@ const labCapacities: Record<string, number> = {
 }
 
 // Server configuration
-const SERVER_BASE_URL = "http://10.100.15.252:3001"
+const SERVER_BASE_URL = process.env.NEXT_PUBLIC_SERVER_BASE_URL 
 
 interface CommandResult {
   command: string

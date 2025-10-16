@@ -15,7 +15,7 @@ import { ArrowLeft, Users, Monitor, AlertTriangle, CheckCircle2, UserPlus, Downl
 import { supabase } from "@/lib/supabase" // Import your Supabase client
 
 // Server configuration - SAME AS LabStatusPage
-const SERVER_BASE_URL = "http://10.100.15.252:3001"
+const SERVER_BASE_URL = process.env.NEXT_PUBLIC_SERVER_BASE_URL 
 
 // Global cache for lab data
 interface LabCache {
