@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useParams, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,11 @@ import {
   ArrowLeft, Monitor, Globe, Home, RefreshCcw, CheckCircle, 
   XCircle, Clock, Power, Wifi, WifiOff, Users, HardDrive, 
   Download, Shield, FileText, Activity, Loader2, Calendar,
-  FileText as DescriptionIcon
+  FileText as DescriptionIcon,
+  Terminal,
+  Copy,
+  ChevronDown,
+  Trash2 // Added for clear history button
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -60,10 +64,16 @@ interface SessionData {
     homes: boolean
     userCleanup: boolean
     handoutdata: boolean
-    // Remove reboot: boolean
   }
   createdBy: string
   createdByEmail: string
+}
+
+// Storage keys
+const STORAGE_KEYS = {
+  COMMAND_RESULTS: (labId: string) => `lab-${labId}-command-results`,
+  MACHINE_STATUS: (labId: string) => `lab-${labId}-machine-status`,
+  LAST_UPDATED: (labId: string) => `lab-${labId}-last-updated`
 }
 
 export default function LabStatusPage() {
@@ -84,34 +94,84 @@ export default function LabStatusPage() {
   // Determine the correct back URL based on whether there's a session
   const getBackUrl = () => {
     if (sessionId) {
-      // If there's a session, go back to the schedule session page
       return `/schedule?session=${sessionId}`
     }
-    // Otherwise, go to the lab overview
     return "/labs"
   }
   
-  // State for machine status
-  const [machinesUp, setMachinesUp] = useState(() => {
-    // Use query params if coming from overview (since labs are now always loaded)
-    return fromOverview ? parseInt(queryUp!) : 0
-  })
-  const [machinesDown, setMachinesDown] = useState(() => {
-    // Use query params if coming from overview (since labs are now always loaded)
-    return fromOverview ? parseInt(queryDown!) : totalMachines
-  })
-  const [lastUpdated, setLastUpdated] = useState(() => {
-    // If coming from overview, show cache info
-    return fromOverview ? "From overview cache" : new Date().toLocaleTimeString()
-  })
+  // Load initial state from localStorage
+  const loadInitialState = () => {
+    try {
+      const savedResults = localStorage.getItem(STORAGE_KEYS.COMMAND_RESULTS(labId))
+      const savedStatus = localStorage.getItem(STORAGE_KEYS.MACHINE_STATUS(labId))
+      const savedLastUpdated = localStorage.getItem(STORAGE_KEYS.LAST_UPDATED(labId))
+
+      return {
+        commandResults: savedResults ? JSON.parse(savedResults) : [],
+        machinesUp: savedStatus ? JSON.parse(savedStatus).machinesUp : (fromOverview ? parseInt(queryUp!) : 0),
+        machinesDown: savedStatus ? JSON.parse(savedStatus).machinesDown : (fromOverview ? parseInt(queryDown!) : totalMachines),
+        lastUpdated: savedLastUpdated || (fromOverview ? "From overview cache" : new Date().toLocaleTimeString())
+      }
+    } catch (error) {
+      console.error('Error loading saved state:', error)
+      return {
+        commandResults: [],
+        machinesUp: fromOverview ? parseInt(queryUp!) : 0,
+        machinesDown: fromOverview ? parseInt(queryDown!) : totalMachines,
+        lastUpdated: fromOverview ? "From overview cache" : new Date().toLocaleTimeString()
+      }
+    }
+  }
+
+  const initialState = loadInitialState()
   
-  // State for command execution
+  // State for machine status - initialized from localStorage
+  const [machinesUp, setMachinesUp] = useState(initialState.machinesUp)
+  const [machinesDown, setMachinesDown] = useState(initialState.machinesDown)
+  const [lastUpdated, setLastUpdated] = useState(initialState.lastUpdated)
+  
+  // State for command execution - initialized from localStorage
   const [isLoading, setIsLoading] = useState<string | null>(null)
-  const [commandResults, setCommandResults] = useState<CommandResult[]>([])
+  const [commandResults, setCommandResults] = useState<CommandResult[]>(initialState.commandResults)
   const [error, setError] = useState("")
   
-  // Session data state - fetch from database using session ID
+  // Session data state
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
+
+  // Ref for auto-scrolling to results
+  const resultsRef = useRef<HTMLDivElement>(null)
+
+  // Save command results to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.COMMAND_RESULTS(labId), JSON.stringify(commandResults))
+    } catch (error) {
+      console.error('Error saving command results:', error)
+    }
+  }, [commandResults, labId])
+
+  // Save machine status to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.MACHINE_STATUS(labId), JSON.stringify({
+        machinesUp,
+        machinesDown
+      }))
+      localStorage.setItem(STORAGE_KEYS.LAST_UPDATED(labId), lastUpdated)
+    } catch (error) {
+      console.error('Error saving machine status:', error)
+    }
+  }, [machinesUp, machinesDown, lastUpdated, labId])
+
+  // Auto-scroll to results when new commands are executed
+  useEffect(() => {
+    if (commandResults.length > 0 && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'nearest'
+      })
+    }
+  }, [commandResults])
 
   // Fetch session data when sessionId is available
   useEffect(() => {
@@ -131,7 +191,6 @@ export default function LabStatusPage() {
         }
 
         if (data) {
-          // Transform the database data to match our frontend interface
           const session: SessionData = {
             id: data.id,
             lab: data.lab,
@@ -147,7 +206,6 @@ export default function LabStatusPage() {
               homes: data.config_homes,
               userCleanup: data.config_user_cleanup,
               handoutdata: data.config_handoutdata,
-              // Remove reboot: data.config_reboot,
             },
             createdBy: data.created_by,
             createdByEmail: data.created_by_email,
@@ -163,9 +221,12 @@ export default function LabStatusPage() {
     fetchSessionData();
   }, [sessionId]);
 
-  // Fetch initial machine status only if not coming from overview
+  // Fetch initial machine status only if not coming from overview and no saved data
   useEffect(() => {
-    if (!fromOverview) {
+    // Only fetch if we don't have saved data and we're not coming from overview
+    const hasSavedData = localStorage.getItem(STORAGE_KEYS.COMMAND_RESULTS(labId)) !== null
+    
+    if (!fromOverview && !hasSavedData) {
       const fetchInitialStatus = async () => {
         try {
           setIsLoading('initial')
@@ -200,21 +261,41 @@ export default function LabStatusPage() {
       }
 
       fetchInitialStatus()
-    } else {
-      // Add a note that we're using cached data from overview
+    } else if (fromOverview && !hasSavedData) {
+      // Only add the cached data message if we don't have existing saved data
       const result: CommandResult = {
         command: "Using Cached Data",
         success: true,
-        output: `✅ Using machine status from Lab Overview\n\nMachines Up: ${queryUp}\nMachines Down: ${queryDown}\nTotal Machines: ${queryTotal}\n\nThis data was already fetched in the overview page, so no additional server request was needed.`,
+        output: `Using machine status from Lab Overview\n\nMachines Up: ${queryUp}\nMachines Down: ${queryDown}\nTotal Machines: ${queryTotal}\n\nThis data was already fetched in the overview page.`,
         timestamp: new Date().toLocaleTimeString(),
         duration: 0,
         labId: labId
       }
-      setCommandResults([result])
+      setCommandResults(prev => [result, ...prev])
     }
   }, [fromOverview, totalMachines, labId, queryUp, queryDown, queryTotal])
 
-  // Real command execution - calls your Node.js server with lab ID
+  // Format command output for better display
+  const formatOutput = (output: string | string[]) => {
+    if (Array.isArray(output)) {
+      return output.join('\n')
+    }
+    return output
+  }
+
+  // Copy output to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+  }
+
+  // Clear command history
+  const clearCommandHistory = () => {
+    setCommandResults([])
+    // Also clear from localStorage
+    localStorage.removeItem(STORAGE_KEYS.COMMAND_RESULTS(labId))
+  }
+
+  // Enhanced command execution with better output formatting
   const executeCommand = async (command: string, description: string) => {
     setIsLoading(command)
     setError("")
@@ -233,7 +314,6 @@ export default function LabStatusPage() {
 
       const data = await response.json()
       
-      // Format output for display
       let displayOutput = ''
       if (data.success) {
         const machinesList = data.machines && Array.isArray(data.machines) ? data.machines : 
@@ -245,9 +325,8 @@ export default function LabStatusPage() {
           ).filter((line: string) => line.length > 0)
           
           if (command.includes('listmachines')) {
-            displayOutput = `✅ ${description} completed successfully\n\nMachines found:\n${cleanOutput.join('\n')}\n\nTotal: ${cleanOutput.length} machines`
+            displayOutput = `✅ ${description} completed successfully\n\nMachines found: ${cleanOutput.length}\n\n${cleanOutput.join('\n')}`
             
-            // Update machine status if this was a status check
             if (command === 'listmachinesup') {
               setMachinesUp(cleanOutput.length)
               setMachinesDown(totalMachines - cleanOutput.length)
@@ -258,7 +337,7 @@ export default function LabStatusPage() {
               setLastUpdated(new Date().toLocaleTimeString())
             }
           } else if (command.includes('report')) {
-            displayOutput = `✅ ${description} completed successfully\n\nReport:\n${cleanOutput.join('\n')}`
+            displayOutput = `✅ ${description} completed successfully\n\n${cleanOutput.join('\n')}`
           } else {
             displayOutput = `✅ ${description} completed successfully for Lab ${labId}\n\n${cleanOutput.join('\n')}`
           }
@@ -313,7 +392,7 @@ export default function LabStatusPage() {
       const result: CommandResult = {
         command: "Health Check",
         success: true,
-        output: `✅ Server connection successful\n\nServer: ${data.server}\nVersion: ${data.version || '1.0.0'}\nStatus: ${data.status}\nAvailable commands: ${data.availableCommands?.length || 0} total\nAvailable labs: ${data.availableLabs?.join(', ') || 'Unknown'}\n\nCommands: ${data.availableCommands?.join(', ') || 'None'}`,
+        output: `✅ Server connection successful\n\nServer: ${data.server}\nVersion: ${data.version || '1.0.0'}\nStatus: ${data.status}\nAvailable commands: ${data.availableCommands?.length || 0} total\nAvailable labs: ${data.availableLabs?.join(', ') || 'Unknown'}`,
         timestamp: new Date().toLocaleTimeString(),
         duration: 0
       }
@@ -326,7 +405,7 @@ export default function LabStatusPage() {
     }
   }
 
-  // Manual refresh function - forces a fresh fetch
+  // Manual refresh function
   const refreshMachineStatus = async () => {
     setIsLoading('refresh')
     setError("")
@@ -421,7 +500,7 @@ export default function LabStatusPage() {
     })
   }
 
-  // All 18 commands organized by category
+  // All commands organized by category
   const commandCategories = {
     'Power Management': [
       {
@@ -567,12 +646,12 @@ export default function LabStatusPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
+      <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white h-20 flex items-center p-4">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" asChild className="hover:bg-white/10">
               <Link href={getBackUrl()}>
-                <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
+                <ArrowLeft className="h-5 w-5 text-white" />
               </Link>
             </Button>
             <h1 className="text-xl font-bold">Lab {labId} Status & Control</h1>
@@ -665,325 +744,425 @@ export default function LabStatusPage() {
           </Card>
         )}
 
-<div className={`grid gap-4 ${sessionData ? 'md:grid-cols-2' : ''} mb-4`}>
-  <Card>
-    <CardHeader>
-      <div className="flex items-center justify-between">
-        <CardTitle>Lab {labId} Status</CardTitle>
-        {!fromOverview && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refreshMachineStatus}
-            disabled={isLoading === 'refresh'}
-          >
-            {isLoading === 'refresh' ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <RefreshCcw className="h-4 w-4 mr-2" />
-            )}
-            Refresh
-          </Button>
-        )}
-      </div>
-    </CardHeader>
-    <CardContent>
-      <div className="space-y-4">
-        <div>
-          <div className="flex justify-between mb-2">
-            <span className="text-sm font-medium">Machines Online</span>
-            <span className="text-sm font-medium">
-              {machinesUp}/{totalMachines}
-            </span>
-          </div>
-          <Progress value={(machinesUp / totalMachines) * 100} className="h-2" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
-            <span className="text-2xl font-bold text-green-600">{machinesUp}</span>
-            <span className="text-xs text-muted-foreground">Machines Up</span>
-          </div>
-          <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
-            <span className="text-2xl font-bold text-red-600">{machinesDown}</span>
-            <span className="text-xs text-muted-foreground">Machines Down</span>
-          </div>
-        </div>
-
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">
-            Lab Capacity: {totalMachines} machines
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Last updated: {lastUpdated}
-          </p>
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-
-  {sessionData && (
-    <Card>
-    <CardHeader>
-      <CardTitle>Configurations to be Applied</CardTitle>
-    </CardHeader>
-    <CardContent>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Monitor className="h-5 w-5 text-muted-foreground" />
-            <Label>Windows Boot</Label>
-          </div>
-          {getConfigurationStatus(sessionData.configurations.windows)}
-        </div>
-  
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Globe className="h-5 w-5 text-muted-foreground" />
-            <Label>Internet Access</Label>
-          </div>
-          {getConfigurationStatus(sessionData.configurations.internet)}
-        </div>
-  
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Home className="h-5 w-5 text-muted-foreground" />
-            <Label>Home Directories</Label>
-          </div>
-          {getConfigurationStatus(sessionData.configurations.homes)}
-        </div>
-  
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-muted-foreground" />
-            <Label>User Cleanup</Label>
-          </div>
-          {getConfigurationStatus(sessionData.configurations.userCleanup)}
-        </div>
-  
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Download className="h-5 w-5 text-muted-foreground" />
-            <Label>Handout Data</Label>
-          </div>
-          {getConfigurationStatus(sessionData.configurations.handoutdata)}
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-  )}
-</div>
-
-<Tabs defaultValue="commands">
-  <TabsList className={`grid w-full ${sessionData ? 'grid-cols-2' : 'grid-cols-1'}`}>
-    <TabsTrigger value="commands">Lab Commands</TabsTrigger>
-    {sessionData && (
-      <TabsTrigger value="status">Configuration Details</TabsTrigger>
-    )}
-  </TabsList>
-
-  <TabsContent value="commands" className="space-y-4">
-    {/* Lab Commands content - this should always be shown */}
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Activity className="h-5 w-5" />
-          Server Connection
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Command server: 10.100.15.252:3001 | Lab: {labId}
-        </p>
-      </CardHeader>
-      <CardContent>
-        <Button
-          onClick={testConnection}
-          disabled={isLoading !== null}
-          className="bg-[#000068] hover:bg-[#030384] text-white"
-        >
-          {isLoading === 'test' ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <CheckCircle className="h-4 w-4 mr-2" />
-          )}
-          Test Server Connection
-        </Button>
-      </CardContent>
-    </Card>
-
-    {/* Commands organized by category */}
-    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-      {Object.entries(commandCategories).map(([category, commands]) => (
-        <Card key={category}>
-          <CardHeader>
-            <CardTitle className="text-lg">{category}</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {commands.length} command{commands.length > 1 ? 's' : ''} available for Lab {labId}
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {commands.map((cmd) => (
-                <Button
-                  key={cmd.id}
-                  onClick={() => executeCommand(cmd.id, cmd.name)}
-                  disabled={isLoading !== null}
-                  className={`w-full ${cmd.color} text-white p-4 h-auto flex items-center gap-3 relative`}
-                >
-                  {isLoading === cmd.id ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    cmd.icon
-                  )}
-                  <div className="text-left flex-1">
-                    <div className="font-medium text-sm">{cmd.name}</div>
-                    <div className="text-xs opacity-90">{cmd.description}</div>
-                  </div>
-                  {isLoading === cmd.id && (
-                    <div className="absolute bottom-1 right-2 text-xs">
-                      Executing...
-                    </div>
-                  )}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-
-    {commandResults.length > 0 && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Command Results</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Recent command executions from welcometools server for Lab {labId}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 max-h-96 overflow-y-auto">
-            {commandResults.map((result, index) => (
-              <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    {result.success ? (
-                      <CheckCircle className="h-5 w-5 text-green-600" />
+        <div className={`grid gap-4 ${sessionData ? 'md:grid-cols-2' : ''} mb-4`}>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Lab {labId} Status</CardTitle>
+                {!fromOverview && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshMachineStatus}
+                    disabled={isLoading === 'refresh'}
+                  >
+                    {isLoading === 'refresh' ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     ) : (
-                      <XCircle className="h-5 w-5 text-red-600" />
+                      <RefreshCcw className="h-4 w-4 mr-2" />
                     )}
-                    <span className="font-medium">{result.command}</span>
-                    {result.labId && (
-                      <Badge variant="secondary" className="text-xs">
-                        Lab {result.labId}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={result.success ? "default" : "destructive"}>
-                      {result.success ? "Success" : "Failed"}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      {result.timestamp} • {(result.duration / 1000).toFixed(1)}s
+                    Refresh
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm font-medium">Machines Online</span>
+                    <span className="text-sm font-medium">
+                      {machinesUp}/{totalMachines}
                     </span>
                   </div>
+                  <Progress value={(machinesUp / totalMachines) * 100} className="h-2" />
                 </div>
-                {result.welcometoolsCommand && (
-                  <div className="text-xs text-gray-500 mb-2 font-mono">
-                    Command: {result.welcometoolsCommand}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
+                    <span className="text-2xl font-bold text-green-600">{machinesUp}</span>
+                    <span className="text-xs text-muted-foreground">Machines Up</span>
                   </div>
-                )}
-                <pre className="text-sm bg-gray-50 p-3 rounded border overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
-                  {typeof result.output === 'string' ? result.output : result.output.join('\n')}
-                </pre>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    )}
-  </TabsContent>
+                  <div className="flex flex-col items-center p-3 bg-muted rounded-lg">
+                    <span className="text-2xl font-bold text-red-600">{machinesDown}</span>
+                    <span className="text-xs text-muted-foreground">Machines Down</span>
+                  </div>
+                </div>
 
-  {sessionData && (
-    <TabsContent value="status" className="space-y-4">
-      {/* Configuration Details content */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Detailed Configuration Status - Lab {labId}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h4 className="font-medium mb-2">Configurations to be Applied</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-  <div>
-    <span className="text-muted-foreground">Windows Boot:</span>
-    <span className={`ml-2 font-medium ${sessionData.configurations.windows ? 'text-green-600' : 'text-gray-400'}`}>
-      {sessionData.configurations.windows ? 'To be Applied' : 'Not Required'}
-    </span>
-  </div>
-  <div>
-    <span className="text-muted-foreground">Internet Access:</span>
-    <span className={`ml-2 font-medium ${sessionData.configurations.internet ? 'text-green-600' : 'text-gray-400'}`}>
-      {sessionData.configurations.internet ? 'To be Applied' : 'Not Required'}
-    </span>
-  </div>
-  <div>
-    <span className="text-muted-foreground">Home Directories:</span>
-    <span className={`ml-2 font-medium ${sessionData.configurations.homes ? 'text-green-600' : 'text-gray-400'}`}>
-      {sessionData.configurations.homes ? 'To be Applied' : 'Not Required'}
-    </span>
-  </div>
-  <div>
-    <span className="text-muted-foreground">User Cleanup:</span>
-    <span className={`ml-2 font-medium ${sessionData.configurations.userCleanup ? 'text-green-600' : 'text-gray-400'}`}>
-      {sessionData.configurations.userCleanup ? 'To be Applied' : 'Not Required'}
-    </span>
-  </div>
-  <div>
-    <span className="text-muted-foreground">Handout Data:</span>
-    <span className={`ml-2 font-medium ${sessionData.configurations.handoutdata ? 'text-green-600' : 'text-gray-400'}`}>
-      {sessionData.configurations.handoutdata ? 'To be Applied' : 'Not Required'}
-    </span>
-  </div>
-  {/* Remove the reboot entry */}
-</div>
-            </div>
-
-            {sessionData.description && (
-              <div className="border-l-4 border-green-500 pl-4">
-                <h4 className="font-medium mb-2">Session Description</h4>
-                <p className="text-sm text-muted-foreground">
-                  {sessionData.description}
-                </p>
+                <div className="text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Lab Capacity: {totalMachines} machines
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Last updated: {lastUpdated}
+                  </p>
+                </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {sessionData && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Configurations to be Applied</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Monitor className="h-5 w-5 text-muted-foreground" />
+                      <Label>Windows Boot</Label>
+                    </div>
+                    {getConfigurationStatus(sessionData.configurations.windows)}
+                  </div>
+            
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-5 w-5 text-muted-foreground" />
+                      <Label>Internet Access</Label>
+                    </div>
+                    {getConfigurationStatus(sessionData.configurations.internet)}
+                  </div>
+            
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Home className="h-5 w-5 text-muted-foreground" />
+                      <Label>Home Directories</Label>
+                    </div>
+                    {getConfigurationStatus(sessionData.configurations.homes)}
+                  </div>
+            
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-5 w-5 text-muted-foreground" />
+                      <Label>User Cleanup</Label>
+                    </div>
+                    {getConfigurationStatus(sessionData.configurations.userCleanup)}
+                  </div>
+            
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Download className="h-5 w-5 text-muted-foreground" />
+                      <Label>Handout Data</Label>
+                    </div>
+                    {getConfigurationStatus(sessionData.configurations.handoutdata)}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        <Tabs defaultValue="commands">
+          <TabsList className={`grid w-full ${sessionData ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            <TabsTrigger value="commands">Lab Commands</TabsTrigger>
+            {sessionData && (
+              <TabsTrigger value="status">Configuration Details</TabsTrigger>
             )}
+          </TabsList>
 
-            <div className="border-l-4 border-gray-500 pl-4">
-              <h4 className="font-medium mb-2">Lab Information</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Lab ID:</span>
-                  <span className="ml-2 font-medium">{labId}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Total Machines:</span>
-                  <span className="ml-2 font-medium">{totalMachines}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Machines Up:</span>
-                  <span className="ml-2 font-medium text-green-600">{machinesUp}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Machines Down:</span>
-                  <span className="ml-2 font-medium text-red-600">{machinesDown}</span>
-                </div>
-              </div>
+          <TabsContent value="commands" className="space-y-4">
+            {/* Lab Commands content */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  Server Connection
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={testConnection}
+                  disabled={isLoading !== null}
+                  className="bg-[#000068] hover:bg-[#030384] text-white"
+                >
+                  {isLoading === 'test' ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Test Server Connection
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Commands organized by category */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {Object.entries(commandCategories).map(([category, commands]) => (
+                <Card key={category}>
+                  <CardHeader>
+                    <CardTitle className="text-lg">{category}</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      {commands.length} command{commands.length > 1 ? 's' : ''} available for Lab {labId}
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {commands.map((cmd) => (
+                        <Button
+                          key={cmd.id}
+                          onClick={() => executeCommand(cmd.id, cmd.name)}
+                          disabled={isLoading !== null}
+                          className={`w-full ${cmd.color} text-white p-4 h-auto flex items-center gap-3 relative`}
+                        >
+                          {isLoading === cmd.id ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            cmd.icon
+                          )}
+                          <div className="text-left flex-1">
+                            <div className="font-medium text-sm">{cmd.name}</div>
+                            <div className="text-xs opacity-90">{cmd.description}</div>
+                          </div>
+                          {isLoading === cmd.id && (
+                            <div className="absolute bottom-1 right-2 text-xs">
+                              Executing...
+                            </div>
+                          )}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </div>
-        </CardContent>
-      </Card>
-    </TabsContent>
-  )}
-</Tabs>
+
+            {/* Enhanced Command Results Section */}
+            {commandResults.length > 0 && (
+              <Card ref={resultsRef}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Terminal className="h-5 w-5" />
+                      Command Results
+                      <Badge variant="secondary" className="ml-2">
+                        {commandResults.length}
+                      </Badge>
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearCommandHistory}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Clear History
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Command history is saved automatically. Results are persisted between page visits.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {commandResults.map((result, index) => (
+                      <div 
+                        key={index} 
+                        className={`border rounded-lg p-4 transition-all duration-200 ${
+                          result.success 
+                            ? 'border-green-200 bg-green-50 hover:bg-green-100' 
+                            : 'border-red-200 bg-red-50 hover:bg-red-100'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            {result.success ? (
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                            ) : (
+                              <XCircle className="h-5 w-5 text-red-600" />
+                            )}
+                            <span className="font-medium">{result.command}</span>
+                            {result.labId && (
+                              <Badge variant="secondary" className="text-xs">
+                                Lab {result.labId}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge 
+                              variant={result.success ? "default" : "destructive"}
+                              className={result.success ? "bg-green-600" : ""}
+                            >
+                              {result.success ? "Success" : "Failed"}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              {result.timestamp}
+                            </span>
+                            {result.duration > 0 && (
+                              <span className="text-xs text-muted-foreground">
+                                • {(result.duration / 1000).toFixed(1)}s
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {result.welcometoolsCommand && (
+                          <div className="mb-3 p-2 bg-gray-100 rounded text-xs font-mono">
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-600">Command executed:</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={() => copyToClipboard(result.welcometoolsCommand!)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            <code className="text-gray-800">{result.welcometoolsCommand}</code>
+                          </div>
+                        )}
+
+                        <div className="bg-white rounded border p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-gray-700">Output:</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs"
+                              onClick={() => copyToClipboard(formatOutput(result.output))}
+                            >
+                              <Copy className="h-3 w-3 mr-1" />
+                              Copy
+                            </Button>
+                          </div>
+                          <div className="text-sm space-y-1 max-h-48 overflow-y-auto">
+                            {formatOutput(result.output).split('\n').map((line, lineIndex) => {
+                              const isSuccess = line.includes('✅') || line.includes('completed successfully')
+                              const isError = line.includes('❌') || line.includes('failed')
+                              const isMachine = /^[a-zA-Z0-9\-_]+$/.test(line.trim()) && line.trim().length > 0
+                              
+                              return (
+                                <div 
+                                  key={lineIndex}
+                                  className={`py-1 px-2 rounded ${
+                                    isSuccess 
+                                      ? 'text-green-700 bg-green-50' 
+                                      : isError
+                                      ? 'text-red-700 bg-red-50'
+                                      : isMachine
+                                      ? 'text-blue-700 bg-blue-50 font-mono text-xs'
+                                      : 'text-gray-700'
+                                  }`}
+                                >
+                                  {line}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {result.machines && result.machines.length > 0 && (
+                          <div className="mt-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Users className="h-4 w-4 text-gray-500" />
+                              <span className="text-sm font-medium text-gray-700">
+                                Affected Machines ({result.machines.length})
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {result.machines.slice(0, 10).map((machine, machineIndex) => (
+                                <Badge key={machineIndex} variant="outline" className="text-xs">
+                                  {machine}
+                                </Badge>
+                              ))}
+                              {result.machines.length > 10 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{result.machines.length - 10} more
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {sessionData && (
+            <TabsContent value="status" className="space-y-4">
+              {/* Configuration Details content */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Detailed Configuration Status - Lab {labId}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div className="border-l-4 border-blue-500 pl-4">
+                      <h4 className="font-medium mb-2">Configurations to be Applied</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Windows Boot:</span>
+                          <span className={`ml-2 font-medium ${sessionData.configurations.windows ? 'text-green-600' : 'text-gray-400'}`}>
+                            {sessionData.configurations.windows ? 'To be Applied' : 'Not Required'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Internet Access:</span>
+                          <span className={`ml-2 font-medium ${sessionData.configurations.internet ? 'text-green-600' : 'text-gray-400'}`}>
+                            {sessionData.configurations.internet ? 'To be Applied' : 'Not Required'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Home Directories:</span>
+                          <span className={`ml-2 font-medium ${sessionData.configurations.homes ? 'text-green-600' : 'text-gray-400'}`}>
+                            {sessionData.configurations.homes ? 'To be Applied' : 'Not Required'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">User Cleanup:</span>
+                          <span className={`ml-2 font-medium ${sessionData.configurations.userCleanup ? 'text-green-600' : 'text-gray-400'}`}>
+                            {sessionData.configurations.userCleanup ? 'To be Applied' : 'Not Required'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Handout Data:</span>
+                          <span className={`ml-2 font-medium ${sessionData.configurations.handoutdata ? 'text-green-600' : 'text-gray-400'}`}>
+                            {sessionData.configurations.handoutdata ? 'To be Applied' : 'Not Required'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {sessionData.description && (
+                      <div className="border-l-4 border-green-500 pl-4">
+                        <h4 className="font-medium mb-2">Session Description</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {sessionData.description}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="border-l-4 border-gray-500 pl-4">
+                      <h4 className="font-medium mb-2">Lab Information</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Lab ID:</span>
+                          <span className="ml-2 font-medium">{labId}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Total Machines:</span>
+                          <span className="ml-2 font-medium">{totalMachines}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Machines Up:</span>
+                          <span className="ml-2 font-medium text-green-600">{machinesUp}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Machines Down:</span>
+                          <span className="ml-2 font-medium text-red-600">{machinesDown}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+        </Tabs>
       </main>
     </div>
   )

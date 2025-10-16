@@ -846,7 +846,7 @@ export default function MaintenancePage() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="all">
+        <Tabs defaultValue="open">
           <TabsList className="grid w-full grid-cols-3 mb-4">
             <TabsTrigger value="all">All Issues</TabsTrigger>
             <TabsTrigger value="open">Open Issues</TabsTrigger>
