@@ -233,6 +233,151 @@ const generateRecurringDates = (startDate: string, endDate: string): string[] =>
   return dates;
 };
 
+// ----- Week helpers + calendar (WEEK VIEW) -----
+const startOfWeekSunday = (isoDate: string) => {
+  // Match your query logic (week starts on Sunday)
+  const d = new Date(isoDate);
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const sunday = new Date(d);
+  sunday.setDate(d.getDate() - day);
+  sunday.setHours(0,0,0,0);
+  return sunday;
+};
+
+const range7 = (sunday: Date) => {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sunday);
+    d.setDate(sunday.getDate() + i);
+    return d;
+  });
+};
+
+const timeToMinutes = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+
+function WeekCalendar({
+  sessions,
+  selectedDate,
+  dayStart = 8,   // 08:00 grid start
+  dayEnd   = 20,  // 20:00 grid end
+}: {
+  sessions: SessionData[];
+  selectedDate: string;
+  dayStart?: number;
+  dayEnd?: number;
+}) {
+  const sunday = startOfWeekSunday(selectedDate);
+  const days = range7(sunday);
+  const dayKey = (d: Date) => d.toISOString().split("T")[0];
+  const totalMinutes = (dayEnd - dayStart) * 60;
+
+  // group sessions by date
+  const byDate: Record<string, SessionData[]> = {};
+  for (const s of sessions) (byDate[s.date] ??= []).push(s);
+
+  // simple overlap layout
+  const layoutDay = (items: SessionData[]) => {
+    const sorted = [...items].sort((a,b)=> timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    const columns: SessionData[][] = [];
+    for (const it of sorted) {
+      let placed = false;
+      for (const col of columns) {
+        const last = col[col.length-1];
+        if (timeToMinutes(it.startTime) >= timeToMinutes(last.endTime)) { col.push(it); placed = true; break; }
+      }
+      if (!placed) columns.push([it]);
+    }
+    const colIndex = new Map<string, number>();
+    columns.forEach((col, i) => col.forEach(s => colIndex.set(s.id, i)));
+    return { columnsCount: columns.length, colIndex };
+  };
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      {/* Header row */}
+      <div className="grid" style={{ gridTemplateColumns: "80px repeat(7, 1fr)" }}>
+        <div className="bg-muted p-2 text-xs font-medium">Time</div>
+        {days.map((d) => (
+          <div key={d.toDateString()} className="bg-muted p-2 text-xs font-medium text-center">
+            {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
+          </div>
+        ))}
+      </div>
+
+      {/* Body */}
+      <div className="relative" style={{ display: "grid", gridTemplateColumns: "80px repeat(7, 1fr)" }}>
+        {/* time gutter */}
+        <div className="border-r relative">
+          {Array.from({length: dayEnd - dayStart + 1}).map((_, i) => (
+            <div key={i} className="border-b h-16 text-[11px] pr-1 flex items-start justify-end pt-1">
+              {(dayStart + i).toString().padStart(2,'0')}:00
+            </div>
+          ))}
+        </div>
+
+        {/* 7 day columns */}
+        {days.map((d) => {
+          const k = dayKey(d);
+          const items = byDate[k] ?? [];
+          const { columnsCount, colIndex } = layoutDay(items);
+
+          return (
+            <div key={k} className="border-r relative">
+              {/* hour grid lines */}
+              {Array.from({length: dayEnd - dayStart + 1}).map((_, i) => (
+                <div key={i} className="border-b h-16" />
+              ))}
+
+              {/* session blocks */}
+              {items.map((s) => {
+                const start = Math.max(timeToMinutes(s.startTime), dayStart*60);
+                const end   = Math.min(timeToMinutes(s.endTime),   dayEnd*60);
+                const topPct    = ((start - dayStart*60) / totalMinutes) * 100;
+                const heightPct = ((end   - start) / totalMinutes) * 100;
+
+                const cols = Math.max(columnsCount, 1);
+                const idx  = colIndex.get(s.id) ?? 0;
+                const leftPct  = (idx / cols) * 100;
+                const widthPct = (1 / cols) * 100;
+
+                const isUnderReview = s.status === "under_review";
+                const completed   = s.sessionStatus === 'completed';
+                const active      = s.sessionStatus === 'active';
+
+                return (
+                  <div
+                    key={s.id}
+                    className={`absolute rounded-md p-2 text-xs shadow-sm border
+                      ${isUnderReview ? 'bg-orange-50 border-orange-300 text-orange-900' :
+                        completed ? 'bg-gray-100 border-gray-300 text-gray-800' :
+                        active ? 'bg-green-50 border-green-300 text-green-900' :
+                        'bg-blue-50 border-blue-300 text-blue-900'}`}
+                    style={{
+                      top: `${topPct}%`,
+                      height: `${heightPct}%`,
+                      left: `${leftPct}%`,
+                      width: `${widthPct}%`,
+                      overflow: 'hidden'
+                    }}
+                    title={`${s.purpose} • Lab ${s.lab} • ${s.startTime}-${s.endTime}`}
+                  >
+                    <div className="font-medium truncate">{s.purpose}</div>
+                    <div className="truncate">Lab {s.lab} • {s.courseCode}</div>
+                    <div className="truncate">{s.startTime}–{s.endTime}</div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+// ----- end week view -----
+
 export default function SchedulePage() {
   const ADMIN_REVIEW_THRESHOLD = 240
   
@@ -1598,9 +1743,10 @@ export default function SchedulePage() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const date = new Date(selectedDate)
-                  date.setDate(date.getDate() - 1)
-                  setSelectedDate(date.toISOString().split("T")[0])
+                  const step = selectedView === "week" ? 7 : 1;
+                  const date = new Date(selectedDate);
+                  date.setDate(date.getDate() - step);
+                  setSelectedDate(date.toISOString().split("T")[0]);
                 }}
               >
                 Previous
@@ -1618,9 +1764,10 @@ export default function SchedulePage() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const date = new Date(selectedDate)
-                  date.setDate(date.getDate() + 1)
-                  setSelectedDate(date.toISOString().split("T")[0])
+                  const step = selectedView === "week" ? 7 : 1;
+                  const date = new Date(selectedDate);
+                  date.setDate(date.getDate() + step);
+                  setSelectedDate(date.toISOString().split("T")[0]);
                 }}
               >
                 Next
@@ -1632,14 +1779,24 @@ export default function SchedulePage() {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#000068] mx-auto mb-2"></div>
                 <p className="text-sm text-muted-foreground">Loading sessions...</p>
               </div>
-            ) : filteredSessions.length === 0 ? (
-              <div className="text-center py-8 border rounded-lg bg-muted/50">
+            ) : selectedView === 'week' ? (
+                sessions.length === 0 ? (
+                  <div className="text-center py-8 border rounded-lg bg-muted/50">
+                    <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
+                    <h3 className="text-lg font-medium">No Sessions This Week</h3>
+                    <p className="text-sm text-muted-foreground mb-4">No sessions scheduled for the selected week.</p>
+                  </div>
+                ) : (
+                  <WeekCalendar sessions={sessions} selectedDate={selectedDate} />
+                )
+              ) : filteredSessions.length === 0 ? (
+                <div className="text-center py-8 border rounded-lg bg-muted/50">
                 <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                 <h3 className="text-lg font-medium">No Sessions Scheduled</h3>
                 <p className="text-sm text-muted-foreground mb-4">There are no sessions scheduled for this date.</p>
                 {canScheduleSessions() && (
                   <Button className="bg-[#000068] hover:bg-[#030384]" onClick={() => setIsAddDialogOpen(true)}>
-                    <Plus className=" h-4 w-4 mr-2" />
+                    <Plus className="h-4 w-4 mr-2" />
                     Schedule New Session
                   </Button>
                 )}
