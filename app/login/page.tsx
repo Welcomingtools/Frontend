@@ -19,60 +19,67 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setIsLoading(true);
+  setError("");
 
-    try {
-      // Query the team_members table in Supabase
-      const { data, error: supabaseError } = await supabase
-        .from('user')
-        .select('*')
-        .eq('email', email.toLowerCase().trim())
-        .single()
+  try {
+    const emailTrimmed = email.toLowerCase().trim();
+    const pwd = password;
 
-      if (supabaseError || !data) {
-        setError("Invalid email or password")
-        setIsLoading(false)
-        return
-      }
+    // 1) Look up the user by email, but don't throw if not found
+    const { data: userRow, error: qErr } = await supabase
+      .from("user")
+      .select("*")
+      .eq("email", emailTrimmed)
+      .maybeSingle(); // <- key: returns {data:null, error:null} when not found
 
-      // Check if member is active
-      if (data.status !== "Active") {
-        setError("Account is inactive. Please contact an administrator.")
-        setIsLoading(false)
-        return
-      }
-
-      // Check if password matches
-      if (data.password !== password) {
-        setError("Invalid email or password")
-        setIsLoading(false)
-        return
-      }
-
-      // Login successful
-      if (typeof window !== 'undefined') {
-        const userSession = {
-          email: data.email,
-          name: data.name,
-          surname:data.surname,
-          role: data.role,
-          loginTime: new Date().toISOString(),
-          accountType: "team_member"
-        }
-        sessionStorage.setItem('userSession', JSON.stringify(userSession))
-      }
-
-      router.push("/dashboard")
-      
-    } catch (err: any) {
-      console.error("Login error:", err)
-      setError("An error occurred during login. Please try again.")
-      setIsLoading(false)
+    if (qErr) {
+      console.error(qErr);
+      setError("Could not check credentials. Please try again.");
+      return;
     }
+
+    // 2) Specific username/email error
+    if (!userRow) {
+      setError("Invalid email.");
+      return;
+    }
+
+    // 3) Account status
+    if (userRow.status !== "Active") {
+      setError("Account is inactive. Please contact an administrator.");
+      return;
+    }
+
+    // 4) Specific password error (your app stores plain text)
+    if (userRow.password !== pwd) {
+      setError("Invalid password.");
+      return;
+    }
+
+    // 5) Success — create session
+    if (typeof window !== "undefined") {
+      const userSession = {
+        email: userRow.email,
+        name: userRow.name,
+        surname: userRow.surname,
+        role: userRow.role,
+        loginTime: new Date().toISOString(),
+        accountType: "team_member",
+      };
+      sessionStorage.setItem("userSession", JSON.stringify(userSession));
+    }
+
+    router.push("/dashboard");
+  } catch (err) {
+    console.error("Login error:", err);
+    setError("An unexpected error occurred. Please try again.");
+  } finally {
+    setIsLoading(false);
   }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-4">
