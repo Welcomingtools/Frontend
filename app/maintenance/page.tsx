@@ -713,9 +713,13 @@ export default function MaintenancePage() {
                           ))}
                         </SelectContent>
                       </Select>
-                      {validationErrors.machineId && (
-                        <p className="text-sm text-red-500">{validationErrors.machineId}</p>
-                      )}
+                      <div className="flex justify-between text-xs">
+                        <div className="h-5">
+                        {validationErrors.machineId && (
+                          <p className="text-sm text-red-500">{validationErrors.machineId}</p>
+                        )}
+                        </div>
+                      </div>
                       {newIssue.lab && (
                         <p className="text-xs text-muted-foreground">
                           Lab {newIssue.lab} has {labsData.find(l => l.id === newIssue.lab)?.capacity} machines
@@ -778,9 +782,13 @@ export default function MaintenancePage() {
                           ))}
                         </SelectContent>
                       </Select>
-                      {validationErrors.category && (
-                        <p className="text-sm text-red-500">{validationErrors.category}</p>
-                      )}
+                      <div className="flex justify-between text-xs">
+                        <div className="h-5">
+                        {validationErrors.category && (
+                          <p className="text-sm text-red-500">{validationErrors.category}</p>
+                        )}
+                        </div>
+                      </div>
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="severity" className="text-sm font-medium">
@@ -798,9 +806,13 @@ export default function MaintenancePage() {
                           ))}
                         </SelectContent>  
                       </Select>
-                      {validationErrors.severity && (
-                        <p className="text-sm text-red-500">{validationErrors.severity}</p>
-                      )}
+                      <div className="flex justify-between text-xs">
+                        <div className="h-5">
+                          {validationErrors.severity && (
+                            <p className="text-sm text-red-500">{validationErrors.severity}</p>
+                          )}
+                          </div>
+                      </div>
                     </div>
                   </div>
                 </div>
