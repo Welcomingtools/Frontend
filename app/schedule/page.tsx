@@ -23,7 +23,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 
 
 const createTimestampForStorage = () => {
@@ -1357,7 +1363,7 @@ export default function SchedulePage() {
         </div>
       )}
 
-     <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white **h-20** flex **items-center** p-4">
+     <header className="bg-gradient-to-r from-[#000068] to-[#1e5fa8] text-white pt-[max(env(safe-area-inset-top),12px)] pb-3 sm:py-4 px-3 sm:px-4 shadow">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Button 
@@ -1369,8 +1375,8 @@ export default function SchedulePage() {
               <ArrowLeft className="h-5 w-5 text-white group-hover:text-white" />
             </Button>
             <div>
-              <h1 className="text-xl font-bold">Schedule Sessions</h1>
-              <p className="text-xs opacity-75">
+              <h1 className="text-xl sm:text-2xl font-bold leading-tight truncate">Schedule Sessions</h1>
+              <p className="text-xs sm:text-xs opacity-75">
                 {userSession.name} {userSession.surname} ({userSession.role}) - 
                 {canScheduleSessions() ? " Can schedule sessions" : " Can check in to sessions"}
               </p>
@@ -1380,7 +1386,7 @@ export default function SchedulePage() {
           {canScheduleSessions() && (
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
               <DialogTrigger asChild>
-                <Button size="sm" className="bg-white text-[#0f4d92] hover:bg-gray-100">
+                <Button size="sm" className="w-full sm:w-auto bg-white text-[#0f4d92] hover:bg-gray-100">
                   <Plus className="h-4 w-4 mr-2" />
                   New Session
                 </Button>
@@ -1722,26 +1728,35 @@ export default function SchedulePage() {
         </div>
       </header>
 
-      <main className="flex-1 container mx-auto p-4">
+      <main className="flex-1 container mx-auto px-3 sm:px-4 py-3 sm:py-4">
         <Card className="mb-4">
           <CardHeader className="pb-2">
             <div className="flex justify-between items-center">
-              <CardTitle>Lab Schedule - {formatDate(selectedDate)}</CardTitle>
-              <div className="flex items-center gap-2">
-                <Tabs value={selectedView} onValueChange={setSelectedView} className="w-[200px]">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="day">Day</TabsTrigger>
-                    <TabsTrigger value="week">Week</TabsTrigger>
+              <CardTitle>Lab Schedule</CardTitle>
+             <div className="flex justify-between sm:justify-end">
+                <Tabs value={selectedView} onValueChange={setSelectedView} className="w-full sm:w-[200px]">
+                  <TabsList className="grid grid-cols-2 gap-1 p-1 w-[90px] sm:w-[200px]">
+                    <TabsTrigger value="day" aria-label="Day view">
+                      {/* Mobile: D, Desktop: Day */}
+                      <span className="sm:hidden">D</span>
+                      <span className="hidden sm:inline">Day</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="week" aria-label="Week view">
+                      {/* Mobile: W, Desktop: Week */}
+                      <span className="sm:hidden">W</span>
+                      <span className="hidden sm:inline">Week</span>
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
-            </div>
+           </div>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between mb-4">
+            <div className="grid grid-cols-[1fr,auto,1fr] items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
+                className="h-10 w-full"
                 onClick={() => {
                   const step = selectedView === "week" ? 7 : 1;
                   const date = new Date(selectedDate);
@@ -1752,12 +1767,13 @@ export default function SchedulePage() {
                 Previous
               </Button>
               <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-muted-foreground" />
+                <Calendar className="h-5 w-5 text-muted-foreground hidden sm:block" />
                 <Input
                   type="date"
                   value={selectedDate}
+                  className="h-10 w-full"
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-[150px]"
+                  
                 />
               </div>
               <Button
@@ -1819,55 +1835,48 @@ export default function SchedulePage() {
                         sessionCheckIn.sessionStatus === 'completed' ? 'border-l-gray-500' :
                         sessionCheckIn.isCheckedIn ? 'border-l-green-500' : 'border-l-[#000068]'
                       }`}>
-                        <CardContent className="p-4">
+                        <CardContent className="p-4 sm:p-4">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div className="flex items-start gap-4">
-                              <div className="bg-muted p-2 rounded-lg flex flex-col items-center justify-center min-w-[60px]">
-                                <Clock className="h-5 w-5 text-muted-foreground mb-1" />
-                                <span className="text-xs font-medium">
+                              <div className="bg-muted p-2 rounded-lg flex flex-col items-center justify-center min-w-[54px]">
+                                <Clock className="h-4 w-4 text-muted-foreground mb-1" />
+                                <span className="text-[10px] sm:text-[11px] font-medium text-center leading-tight whitespace-normal break-words tabular-nums">
                                   {formatTime(session.startTime)} - {formatTime(session.endTime)}
                                 </span>
                               </div>
                               <div className="flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="font-medium">{session.purpose}</h3>
-                                  <Badge className="bg -[#000068]" >Lab {session.lab}</Badge>
-                                  <Badge variant="outline" className="bg-blue-100 text-blue-800">
-                                    {session.courseCode}
-                                  </Badge>
-                                  
-                                  {isUnderReview && (
-                                    <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
-                                      Under Review
-                                    </Badge>
-                                  )}
-                                  {session.status === "confirmed" && !sessionCheckIn.isCheckedIn && (
-                                    <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
-                                      Available
-                                    </Badge>
-                                  )}
-                                  {sessionCheckIn.sessionStatus === 'completed' && (
-                                    <Badge className="bg-gray-600 text-white">
-                                      Setup Completed
-                                    </Badge>
-                                  )}
-                                  {sessionCheckIn.isCheckedIn && sessionCheckIn.sessionStatus === 'active' && (
-                                    <Badge className="bg-green-600 text-white">
-                                      {sessionCheckIn.isCurrentUser ? 'Active (You)' : `Active (${sessionCheckIn.checkedInBy})`}
-                                    </Badge>
-                                  )}
-                                  {isCheckingIn && (
-                                    <Badge className="bg-blue-600 text-white animate-pulse">
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                      Checking In...
-                                    </Badge>
-                                  )}
+                                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                                  <h3 className="font-medium text-sm sm:text-base">{session.purpose}</h3>
+
+                                  {/* chip rail */}
+                                  <div className="flex gap-2 overflow-x-auto max-w-full py-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                    <Badge className="shrink-0 bg-[#000068]">Lab {session.lab}</Badge>
+                                    <Badge variant="outline" className="shrink-0 bg-blue-100 text-blue-800">{session.courseCode}</Badge>
+                                    {isUnderReview && (
+                                      <Badge variant="outline" className="shrink-0 bg-orange-100 text-orange-800 border-orange-300">
+                                        Under Review
+                                      </Badge>
+                                    )}
+                                    {session.status === "confirmed" && !sessionCheckIn.isCheckedIn && (
+                                      <Badge variant="outline" className="shrink-0 bg-green-100 text-green-800 border-green-300">
+                                        Available
+                                      </Badge>
+                                    )}
+                                    {sessionCheckIn.sessionStatus === 'completed' && (
+                                      <Badge className="shrink-0 bg-gray-600 text-white">Setup Completed</Badge>
+                                    )}
+                                    {sessionCheckIn.isCheckedIn && sessionCheckIn.sessionStatus === 'active' && (
+                                      <Badge className="shrink-0 bg-green-600 text-white">
+                                        {sessionCheckIn.isCurrentUser ? 'Active (You)' : `Active (${sessionCheckIn.checkedInBy})`}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                                 
                                 <p className="text-sm text-muted-foreground">Created by {session.createdBy}</p>
                                 
                                 {session.description && (
-                                  <p className="text-sm text-muted-foreground mt-1">{session.description}</p>
+                                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2 sm:line-clamp-none">{session.description}</p>
                                 )}
                                 
                                 <div className="mt-1">
@@ -1936,10 +1945,60 @@ export default function SchedulePage() {
                               </div>
                             </div>
                             
-                            <div className="flex flex-col gap-2">
-                              <div className="flex gap-2">
+                            <div className="flex flex-col gap-2 w-full sm:w-auto">
+                              {/* Desktop/tablet: show your existing buttons */}
+                              <div className="hidden sm:flex gap-2">
                                 {renderSessionButtons(session)}
+                              </div>
 
+                              {/* Mobile: one Actions button with menu */}
+                              <div className="sm:hidden">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button className="w-full bg-[#000068] hover:bg-[#030384]">Actions</Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-48">
+                                    {/* We reuse the same conditions you already have */}
+                                    {/* Check-in (Welcoming Team only & available) */}
+                                    {(userSession?.role === "Welcoming Team" &&
+                                      session.status === "confirmed" &&
+                                      canCheckIn(session.date, session.startTime, session.endTime) &&
+                                      !getSessionCheckInStatus(session).isCheckedIn) && (
+                                      <DropdownMenuItem onClick={() => handleCheckIn(session.id)}>
+                                        Check in
+                                      </DropdownMenuItem>
+                                    )}
+
+                                    {/* Enter Lab Controls (only if this user is checked in & not completed) */}
+                                    {(getSessionCheckInStatus(session).isCurrentUser &&
+                                      getSessionCheckInStatus(session).sessionStatus !== 'completed') && (
+                                      <DropdownMenuItem onClick={() => router.push(`/labs/${session.lab}?session=${session.id}`)}>
+                                        Enter lab controls
+                                      </DropdownMenuItem>
+                                    )}
+
+                                    {/* Complete (only if current user checked in) */}
+                                    {(getSessionCheckInStatus(session).isCurrentUser &&
+                                      getSessionCheckInStatus(session).sessionStatus === 'active') && (
+                                      <DropdownMenuItem onClick={() => handleCompleteSession(session.id)}>
+                                        Complete setup
+                                      </DropdownMenuItem>
+                                    )}
+
+                                    {/* Admin delete always visible for Admins */}
+                                    {userSession?.role === "Admin" && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          className="text-red-600 focus:text-red-700"
+                                          onClick={() => handleCancelSession(session.id)}
+                                        >
+                                          Delete session
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </div>
                           </div>
