@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2, CheckCircle } from "lucide-react"
+import { ArrowLeft, UserPlus, Edit, Trash2, Shield, AlertTriangle, User, Loader2, CheckCircle, Filter, MoreHorizontal, Pencil, ShieldCheck } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
@@ -23,7 +23,13 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { createClient } from "@supabase/supabase-js";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetTrigger,
+} from "@/components/ui/sheet"
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import { createClient } from "@supabase/supabase-js"
 
 import { toast } from "sonner"
 
@@ -52,10 +58,12 @@ type Report = {
   id: string
   reported_user_id: string
   reported_user_name: string
+  reported_user_surname:string
   reported_user_email: string
   reported_user_role: string
   reporter_email: string
   reporter_name: string
+  reporter_surname:string
   reporter_role: string
   reason: string
   details: string
@@ -165,6 +173,8 @@ const filteredReports = useMemo<Report[]>(() => {
   const [reportEdit, setReportEdit] = useState({ reason: "", details: "", status: "Submitted" as Report["status"] })
   const [reportError, setReportError] = useState<string | null>(null)
 
+  //For toasts when saving reports
+  const [savingReport, setSavingReport] = useState(false);
   // Date formatter
   const fmtDate = (dateStr: string) => {
     try {
@@ -577,42 +587,48 @@ const filteredReports = useMemo<Report[]>(() => {
   }
 
   const saveReportEdits = async () => {
-    if (!activeReport) return
-    
+    if (!activeReport) return;
+
     try {
-      let updateData: any = {}
-      
+      setSavingReport(true);
+
+      const now = new Date().toISOString();
+      let updateData: Partial<Report> = { updated_at: now };
+
       if (isAdmin) {
-        updateData.status = reportEdit.status
+        updateData.status = reportEdit.status;
       } else {
-        updateData.reason = reportEdit.reason
-        updateData.details = reportEdit.details
+        updateData.reason = reportEdit.reason;
+        updateData.details = reportEdit.details;
       }
 
       const { error } = await supabase
-        .from('incident')
+        .from("incident")
         .update(updateData)
-        .eq('id', activeReport.id)
+        .eq("id", activeReport.id);
 
       if (error) {
-        console.error("Failed to update report:", error)
-        alert("Failed to update report: " + error.message)
-        return
+        console.error("Failed to update report:", error);
+        toast.error("Could not save changes. Please try again.");
+        return;
       }
 
-      // Update local state
-      setReports(prev => prev.map(r => 
-        r.id === activeReport.id 
-          ? { ...r, ...updateData }
-          : r
-      ))
-      
-      setReportDialogOpen(false)
+      // Update local cache
+      setReports(prev =>
+        prev.map(r => (r.id === activeReport.id ? { ...r, ...updateData } as Report : r))
+      );
+
+      // Success toast (different text for admin vs user)
+      toast.success(isAdmin ? "Status updated." : "Changes saved.");
+
+      setReportDialogOpen(false);
     } catch (e) {
-      console.error("Failed to update report:", e)
-      alert("Failed to update report")
+      console.error("Failed to update report:", e);
+      toast.error("Unexpected error while saving.");
+    } finally {
+      setSavingReport(false);
     }
-  }
+  };``
 
   // Show loading state while checking authorization
   if (userSession === null) {
@@ -808,64 +824,112 @@ const filteredReports = useMemo<Report[]>(() => {
         
         {/* Team Members display */}
         <Card>
-          <CardHeader>
-            <CardTitle>Team Members</CardTitle>
+            <CardHeader>
+              <CardTitle>Team Members</CardTitle>
 
               {isAdmin && (
-                <div className="flex items-center gap-4 h-20">
-                  {/* Role Filter */}
-                  <div className="min-w-[200px]">
-                    <Label className="text-m mb-1 block">Filter by role</Label>
-                    <Select
-                      value={roleFilter}
-                      onValueChange={(v) => setRoleFilter(v as any)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All roles" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {/* Static roles */}
-                        <SelectItem value="All">All roles</SelectItem>
-                        <SelectItem value="Admin">Admin</SelectItem>
-                        <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
-                        <SelectItem value="BCDR">BCDR</SelectItem>
+                <>
+                  {/* Mobile: single Filters button */}
+                  <div className="sm:hidden mt-4">
+                    <Sheet>
+                      <SheetTrigger asChild>
+                        <Button className="w-full" variant="outline">
+                          <Filter className="mr-2 h-4 w-4" />
+                          Filters
+                        </Button>
+                      </SheetTrigger>
 
-                        {/* If using dynamic roles instead of static, replace the 4 items above with:
-                        {roles.map(r => (
-                          <SelectItem key={r} value={r}>{r === 'All' ? 'All roles' : r}</SelectItem>
-                        ))} */}
-                      </SelectContent>
-                    </Select>
+                      <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto">
+                        <SheetHeader>
+                          <SheetTitle>Team filters</SheetTitle>
+                        </SheetHeader>
+
+                        <div className="mt-4 space-y-4">
+                          {/* Role */}
+                          <div>
+                            <Label className="mb-1 block">Filter by role</Label>
+                            <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as any)}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="All roles" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="All">All roles</SelectItem>
+                                <SelectItem value="Admin">Admin</SelectItem>
+                                <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
+                                <SelectItem value="BCDR">BCDR</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Status */}
+                          <div>
+                            <Label className="mb-1 block">Filter by status</Label>
+                            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="All statuses" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="All">All statuses</SelectItem>
+                                <SelectItem value="Active">Active</SelectItem>
+                                <SelectItem value="Deactivated">Deactivated</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <SheetFooter className="mt-6">
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => { setRoleFilter("All"); setStatusFilter("All"); }}
+                          >
+                            Clear
+                          </Button>
+                        </SheetFooter>
+                      </SheetContent>
+                    </Sheet>
                   </div>
 
-                  {/* Status Filter */}
-                  <div className="min-w-[200px]">
-                    <Label className="text-m mb-1 block">Filter by status</Label>
-                    <Select
-                      value={statusFilter}
-                      onValueChange={(v) => setStatusFilter(v as any)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="All statuses" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="All">All statuses</SelectItem>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="Deactivated">Deactivated</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {/* Tablet/Desktop: original grid of filters */}
+                  <div className="hidden sm:grid grid-cols-2 lg:grid-cols-[1fr_1fr_auto] gap-4 items-end mt-4">
+                    <div className="w-full">
+                      <Label className="mb-1 block">Filter by role</Label>
+                      <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as any)}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="All roles" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All roles</SelectItem>
+                          <SelectItem value="Admin">Admin</SelectItem>
+                          <SelectItem value="Welcoming Team">Welcoming Team</SelectItem>
+                          <SelectItem value="BCDR">BCDR</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <Button
-                    variant="outline"
-                    onClick={() => { setRoleFilter('All'); setStatusFilter('All'); }}
-                    className ="flex items-center ml-4 mt-4 px-4 py-2"
-                  >
-                    Clear
-                  </Button>
-                </div>
+                    <div className="w-full">
+                      <Label className="mb-1 block">Filter by status</Label>
+                      <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All statuses</SelectItem>
+                          <SelectItem value="Active">Active</SelectItem>
+                          <SelectItem value="Deactivated">Deactivated</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex sm:justify-start lg:justify-end">
+                      <Button
+                        variant="outline"
+                        className="px-4"
+                        onClick={() => { setRoleFilter("All"); setStatusFilter("All"); }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
-          </CardHeader>
+            </CardHeader>
           <CardContent>
             {loading ? (
               <div className="flex justify-center items-center py-8">
@@ -879,29 +943,29 @@ const filteredReports = useMemo<Report[]>(() => {
             ) : (
               <div className="space-y-4">
                 {filteredMembers.map((member) => (
-                  <div key={member.id} className="flex items-center justify-between border-b pb-4 last:border-0">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-10 w-10">
+                  <div key={member.id} className="flex flex-col rounded-xl border p-3 sm:p-4 hover:shadow-sm transition gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <Avatar className="h-10 w-10 shrink-0">
                         <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${member.name}`} />
                         <AvatarFallback className="bg-[#0f4d92] text-white">
                           <User className="h-5 w-5" />
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="font-medium">{member.name} {member.surname}</p>
-                        <p className="text-sm text-muted-foreground">{member.email}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline">{member.role}</Badge>
-                          <Badge variant={member.status === "Active" ? "default" : "secondary"}>
+                      <div className="min-w-0">
+                        <p className="font-medium leading-tight truncate">{member.name} {member.surname}</p>
+                        <p className="text-sm text-muted-foreground truncate">{member.email}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Badge variant="secondary" className="px-2 py-0.5 text-[11px]">{member.role}</Badge>
+                          <Badge className="px-2 py-0.5 text-[11px]" variant={member.status === "Active" ? "default" : "secondary"}>
                             {member.status}
                           </Badge>
                         </div>
                       </div>
                     </div>
 
-                    {/* Actions for Admins */}
+                    {/* Desktop Actions for Admins */}
                     {isAdmin && (
-                      <div className="flex items-center gap-6">
+                      <div className="hidden sm:flex items-center gap-6 shrink-0">
                         
                         {/* Edit */}
                         <Dialog>
@@ -982,10 +1046,42 @@ const filteredReports = useMemo<Report[]>(() => {
                         </Button>
                       </div>
                     )}
+
+                    {/* Mobile: single Actions menu */}
+                    {isAdmin && (
+                      <div className="sm:hidden shrink-0">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full justify-center">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onClick={() => setEditMember(member)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit profile
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleStatusToggle(member.id)}>
+                              <ShieldCheck className="mr-2 h-4 w-4" />
+                              {member.status === "Active" ? "Deactivate" : "Activate"}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-600 focus:text-red-600"
+                              onClick={() => handleDeleteMember(member.id)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete profile
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    )}
+
                     {/* Actions for non-admins: Report only (exclude self) */}
                     {!isAdmin && userSession?.email.toLowerCase().trim() !== member.email.toLowerCase().trim() && (
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10" onClick={() => openReport(member)}>
+                        <Button variant="outline" size="sm" className="w-full sm:w-auto self-stretch sm:self-auto border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10 hover:text-[#0f4d92]" onClick={() => openReport(member)}>
                           Report
                         </Button>
                       </div>
@@ -1008,63 +1104,181 @@ const filteredReports = useMemo<Report[]>(() => {
 
         {/* FEEDBACK HUB */}
         <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="flex flex-wrap items-centre items-end gap-3">{isAdmin ? "Reports (All Users)" : "Feedback Hub"}</CardTitle>
-            
-            {isAdmin && (
-                  <div className="flex flex-wrap items-centre items-end gap-3 ">
+            <CardHeader>
+              <CardTitle className="flex flex-wrap items-centre items-end gap-3">{isAdmin ? "Reports (All Users)" : "Feedback Hub"}</CardTitle>
+
+              {isAdmin && (
+                <>
+                  {/* Mobile: single full-width Filters button */}
+                  <div className="sm:hidden mt-2">
+                    <Sheet>
+                      <SheetTrigger asChild>
+                        <Button className="w-full" variant="outline">
+                          <Filter className="mr-2 h-4 w-4" />
+                          Filters
+                        </Button>
+                      </SheetTrigger>
+
+                      <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto">
+                        <SheetHeader>
+                          <SheetTitle>Report filters</SheetTitle>
+                        </SheetHeader>
+
+                        <div className="mt-4 space-y-4">
+                          {/* Role filed on */}
+                          <div>
+                            <Label className="mb-1 block">Role filed on</Label>
+                            <Select value={filedOnRole} onValueChange={setFiledOnRole}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="All" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {roleOnOptions.map((opt) => (
+                                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Role filed by */}
+                          <div>
+                            <Label className="mb-1 block">Role filed by</Label>
+                            <Select value={filedByRole} onValueChange={setFiledByRole}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="All" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {roleByOptions.map((opt) => (
+                                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Issue type */}
+                          <div>
+                            <Label className="mb-1 block">Issue type</Label>
+                            <Select value={issueType} onValueChange={setIssueType}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="All" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {issueOptions.map((opt) => (
+                                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Status */}
+                          <div>
+                            <Label className="mb-1 block">Status</Label>
+                            <Select value={statusF} onValueChange={(v) => setStatusF(v as any)}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="All" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {statusOptions.map((opt) => (
+                                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <SheetFooter className="mt-6">
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => {
+                              setFiledOnRole("All");
+                              setFiledByRole("All");
+                              setIssueType("All");
+                              setStatusF("All");
+                            }}
+                          >
+                            Clear
+                          </Button>
+                        </SheetFooter>
+                      </SheetContent>
+                    </Sheet>
+                  </div>
+
+                  {/* Tablet/Desktop: keep the original grid (hidden on phones) */}
+                  <div className="hidden sm:grid grid-cols-2 lg:grid-cols-5 gap-4 items-end mt-2">
                     {/* Role filed on */}
-                    <div className="min-w-[180px]">
-                      <Label className="text-m mb-1 block">Role filed on</Label>
-                      <Select value={filedOnRole} onValueChange={(v) => setFiledOnRole(v)}>
-                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                    <div className="w-full">
+                      <Label className="mb-1 block">Role filed on</Label>
+                      <Select value={filedOnRole} onValueChange={setFiledOnRole}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="All" /></SelectTrigger>
                         <SelectContent>
-                          {roleOnOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                          {roleOnOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
 
                     {/* Role filed by */}
-                    <div className="min-w-[180px]">
-                      <Label className="text-m mb-1 block">Role filed by</Label>
-                      <Select value={filedByRole} onValueChange={(v) => setFiledByRole(v)}>
-                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                    <div className="w-full">
+                      <Label className="mb-1 block">Role filed by</Label>
+                      <Select value={filedByRole} onValueChange={setFiledByRole}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="All" /></SelectTrigger>
                         <SelectContent>
-                          {roleByOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                          {roleByOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
 
                     {/* Issue type */}
-                    <div className="min-w-[180px]">
-                      <Label className="text-m mb-1 block">Issue type</Label>
-                      <Select value={issueType} onValueChange={(v) => setIssueType(v)}>
-                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                    <div className="w-full">
+                      <Label className="mb-1 block">Issue type</Label>
+                      <Select value={issueType} onValueChange={setIssueType}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="All" /></SelectTrigger>
                         <SelectContent>
-                          {issueOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                          {issueOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
 
                     {/* Status */}
-                    <div className="min-w-[180px]">
-                      <Label className="text-m mb-1 block">Status</Label>
-                      <Select value={statusF} onValueChange={(v) => setStatusF(v as ReportStatus | 'All')}>
-                        <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                    <div className="w-full">
+                      <Label className="mb-1 block">Status</Label>
+                      <Select value={statusF} onValueChange={(v) => setStatusF(v as any)}>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="All" /></SelectTrigger>
                         <SelectContent>
-                          {statusOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+                          {statusOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
 
-                    <Button variant="outline" onClick={() => {
-                      setFiledOnRole('All'); setFiledByRole('All'); setIssueType('All'); setStatusF('All');
-                    }}>
-                      Clear
-                    </Button>
+                    {/* Clear */}
+                    <div className="flex lg:justify-end">
+                      <Button
+                        variant="outline"
+                        className="w-full lg:w-auto"
+                        onClick={() => {
+                          setFiledOnRole("All");
+                          setFiledByRole("All");
+                          setIssueType("All");
+                          setStatusF("All");
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
                   </div>
-                )}
-          </CardHeader>
+                </>
+              )}
+            </CardHeader>
+
+          
           <CardContent>
             {reportsLoading ? (
               <div className="flex justify-center items-center py-4">
@@ -1080,27 +1294,29 @@ const filteredReports = useMemo<Report[]>(() => {
                 {filteredReports.map((r: Report) => (
                   <div
                     key={r.id}
-                    className="flex items-center justify-between border rounded-md p-3"
+                    className="mt-2 rounded-xl border p-3 sm:p-4 hover:shadow-sm transition grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-y-2 sm:gap-x-3 items-start"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={r.status === "Submitted" ? "default" : "outline"}>{r.status}</Badge>
+                    <div className="min-w-0 whitespace-normal break-words hyphens-auto pr-1">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <Badge className="px-2 py-0.5 text-[11px]" variant={r.status === "Submitted" ? "default" : "outline"}>{r.status}</Badge>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span className="text-sm text-muted-foreground">{fmtDate(r.created_at)}</span>
                       </div>
-                      <div className="text-sm">
-                        <span className="font-medium">Filed on:</span> {r.reported_user_name} ({r.reported_user_role})
+                      <div className="mt-1 text-sm leading-snug font-medium">
+                        <span className="font-medium">Filed on:</span> {r.reported_user_name} {r.reported_user_surname} ({r.reported_user_role})
                       </div>
-                      <div className="text-sm">
+                      <div className="mt-1 space-y-1 text-sm">
                         <span className="font-medium">Issue:</span> {r.reason}
                       </div>
                       {isAdmin && (
-                        <div className="text-xs text-muted-foreground">
-                          <span className="font-medium">Filed by:</span> {r.reporter_name} &lt;{r.reporter_email}&gt; ({r.reporter_role})
+                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          <span className="font-medium">Filed by:</span> {r.reporter_name}{r.reporter_surname} &lt;{r.reporter_email}&gt; ({r.reporter_role})
                         </div>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openReportDialog(r)}>
+                      <Button variant="outline" size="sm" className=" w-full sm:w-auto sm:justify-self-end border-[#0f4d92] text-[#0f4d92] hover:bg-[#0f4d92]/10 hover:text-[#0f4d92]" onClick={() => openReportDialog(r)}>
                         View Details
                       </Button>
                     </div>
@@ -1303,8 +1519,19 @@ const filteredReports = useMemo<Report[]>(() => {
 
             <DialogFooter>
               <Button variant="outline" onClick={() => setReportDialogOpen(false)}>Close</Button>
-              <Button onClick={saveReportEdits} className="bg-[#000068] hover:bg-[#030384]">
-                {isAdmin ? "Save Status" : "Save Changes"}
+              <Button
+                onClick={saveReportEdits}
+                disabled={savingReport}
+                className="bg-[#000068] hover:bg-[#030384]"
+              >
+                {savingReport ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  isAdmin ? "Save Status" : "Save Changes"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
