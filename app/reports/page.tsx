@@ -551,22 +551,23 @@ const sessionByDay = useMemo(() => {
         <div className="space-y-6 pt-2 pb-66">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="pt-2">
-              <p className="text-lg font-semibold text-black text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents.</p>
-            </div>
-            <div className="flex items-end gap-4 pb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                <div>
-                  <Label htmlFor="from">From</Label>
-                  <Input id="from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              <p className="text-lg font-semibold text-black text-muted-foreground">Select a date range to analyse sessions, staff behaviour, and incidents:</p>
+            
+              <div className="flex items-end gap-4 pb-6">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div >
+                    <Label htmlFor="from">From</Label>
+                    <Input id="from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-10 w-[160px] sm:w-[190px]"/>
+                  </div>
+                  <div >
+                    <Label htmlFor="to">To</Label>
+                    <Input id="to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}  className="h-10 w-[160px] sm:w-[190px]"/>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="to">To</Label>
-                  <Input id="to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                </div>
+                <Button onClick={loadData} disabled={loading} className="bg-[#000068] hover:bg-[#030384]">
+                  {loading ? "Loading…" : "Refresh"}
+                </Button>
               </div>
-              <Button onClick={loadData} disabled={loading} className="bg-[#000068] hover:bg-[#030384]">
-                {loading ? "Loading…" : "Refresh"}
-              </Button>
             </div>
           </div>
 
