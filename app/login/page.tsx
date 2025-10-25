@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { AlertCircle, Eye, EyeOff, User, Lock, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { supabase } from "@/lib/supabase"
+import { logAuthAction } from "@/lib/activityLogger"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -19,66 +20,69 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
 
-const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setIsLoading(true);
-  setError("");
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
 
-  try {
-    const emailTrimmed = email.toLowerCase().trim();
-    const pwd = password;
+    try {
+      const emailTrimmed = email.toLowerCase().trim();
+      const pwd = password;
 
-    // 1) Look up the user by email, but don't throw if not found
-    const { data: userRow, error: qErr } = await supabase
-      .from("user")
-      .select("*")
-      .eq("email", emailTrimmed)
-      .maybeSingle(); // <- key: returns {data:null, error:null} when not found
+      // 1) Look up the user by email
+      const { data: userRow, error: qErr } = await supabase
+        .from("user")
+        .select("*")
+        .eq("email", emailTrimmed)
+        .maybeSingle();
 
-    if (qErr) {
-      console.error(qErr);
-      setError("Could not check credentials. Please try again.");
-      return;
+      if (qErr) {
+        console.error(qErr);
+        setError("Could not check credentials. Please try again.");
+        return;
+      }
+
+      // 2) Specific username/email error
+      if (!userRow) {
+        setError("Invalid email.");
+        return;
+      }
+
+      // 3) Account status
+      if (userRow.status !== "Active") {
+        setError("Account is inactive. Please contact an administrator.");
+        return;
+      }
+
+      // 4) Specific password error
+      if (userRow.password !== pwd) {
+        setError("Invalid password.");
+        return;
+      }
+
+      // 5) Success — create session
+      if (typeof window !== "undefined") {
+        const userSession = {
+          email: userRow.email,
+          name: userRow.name,
+          surname: userRow.surname,
+          role: userRow.role,
+          loginTime: new Date().toISOString(),
+          accountType: "team_member",
+        };
+        sessionStorage.setItem("userSession", JSON.stringify(userSession));
+
+        // Log successful login
+        await logAuthAction("login", userRow.email);
+      }
+
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("An unexpected error occurred. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
-
-    // 2) Specific username/email error
-    if (!userRow) {
-      setError("Invalid email.");
-      return;
-    }
-
-    // 3) Account status
-    if (userRow.status !== "Active") {
-      setError("Account is inactive. Please contact an administrator.");
-      return;
-    }
-
-    // 4) Specific password error (your app stores plain text)
-    if (userRow.password !== pwd) {
-      setError("Invalid password.");
-      return;
-    }
-
-    // 5) Success — create session
-    if (typeof window !== "undefined") {
-      const userSession = {
-        email: userRow.email,
-        name: userRow.name,
-        surname: userRow.surname,
-        role: userRow.role,
-        loginTime: new Date().toISOString(),
-        accountType: "team_member",
-      };
-      sessionStorage.setItem("userSession", JSON.stringify(userSession));
-    }
-
-    router.push("/dashboard");
-  } catch (err) {
-    console.error("Login error:", err);
-    setError("An unexpected error occurred. Please try again.");
-  } finally {
-    setIsLoading(false);
-  }
   };
 
   return (
@@ -168,7 +172,6 @@ const handleLogin = async (e: React.FormEvent) => {
               type="submit" 
               className="w-full h-12 bg-gradient-to-r from-[#000068] to-[#1e5fa8] hover:from-[#030384] hover:to-[#1a5396] text-white font-medium transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none" 
               disabled={isLoading}
-              
             >
               {isLoading ? (
                 <>

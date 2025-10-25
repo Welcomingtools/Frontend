@@ -1511,7 +1511,7 @@ const generateMachines = (labId: string, totalMachines: number, onlineMachineIds
                           setImportedStudents([])
                           setCsvFile(null)
                         }}
-                        className="flex-1 text-xs sm:text-sm bg-[#000068] hover:bg-[#030384]"
+                        className="flex-1 text-xs text-white sm:text-sm bg-[#000068] hover:bg-[#030384]"
                       >
                         Manual Entry
                       </Button>
