@@ -58,6 +58,12 @@ export type DbSession = {
   created_by_email: string | null
   created_at: string | null
   description: string | null
+
+  config_windows: boolean | null
+  config_internet: boolean | null
+  config_homes: boolean | null
+  config_user_cleanup: boolean | null
+  config_handoutdata: boolean | null
 }
 
 // maintenance_issues table → Incident Report
@@ -106,6 +112,16 @@ const PALETTE = [
   "#0ea5e9", // sky-500
   "#d946ef", // fuchsia-500
   "#22c55e", // green-500
+  "#4E79A7", // blue
+  "#F28E2B", // orange
+  "#E15759", // red
+  "#76B7B2", // teal
+  "#59A14F", // green
+  "#EDC949", // yellow
+  "#AF7AA1", // purple
+  "#FF9DA7", // pink
+  "#9C755F", // brown
+  "#BAB0AC", // gray
 ]
 
 function toMinutes(hhmm?: string | null) {
@@ -199,8 +215,7 @@ export default function ReportsPage() {
       const { data: sData, error: sErr } = await supabase
         .from("sessions")
         .select(
-          `id, lab, date, start_time, end_time, purpose, status, created_by, created_by_email, created_at, description`
-        )
+          `id, lab, date, start_time, end_time, purpose, status, created_by, created_by_email, created_at, description, config_windows, config_internet, config_homes, config_user_cleanup, config_handoutdata`)
         .gte("date", fromDate)
         .lte("date", toDate)
         .order("date", { ascending: true })
@@ -273,19 +288,62 @@ export default function ReportsPage() {
   }, [sessions])
 
   // ADD: peak days of the week
-const sessionByDay = useMemo(() => {
-    const map = new Map<string, number>()
-    sessions.forEach((s) => {
-      const d = safeDate(s.date)
-      if (d) {
-        const day = format(d, "EEEE")
-        map.set(day, (map.get(day) || 0) + 1)
-      }
-    })
-    const order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-    const arr = Array.from(map, ([day, count]) => ({ day, count }))
-    return arr.sort((a,b)=> order.indexOf(a.day) - order.indexOf(b.day))
+  const sessionByDay = useMemo(() => {
+      const map = new Map<string, number>()
+      sessions.forEach((s) => {
+        const d = safeDate(s.date)
+        if (d) {
+          const day = format(d, "EEEE")
+          map.set(day, (map.get(day) || 0) + 1)
+        }
+      })
+      const order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+      const arr = Array.from(map, ([day, count]) => ({ day, count }))
+      return arr.sort((a,b)=> order.indexOf(a.day) - order.indexOf(b.day))
   }, [sessions])
+
+  const configComboData = useMemo(() => {
+      const counts = new Map<string, number>()
+      let excluded = 0;
+
+      for (const s of sessions) {
+        const picked: string[] = []
+        if (s.config_windows) picked.push("Windows")
+        if (s.config_internet) picked.push("Internet")
+        if (s.config_homes) picked.push("Homes")
+        if (s.config_user_cleanup) picked.push("User Clean-up")
+        if (s.config_handoutdata) picked.push("Handout Data")
+
+            if (picked.length === 0) { // <- exclude “No configs”
+          excluded++;
+          continue;
+        }
+
+        const key = picked.join(" + ");
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+
+      const rows = Array.from(counts, ([combo, count]) => ({ combo, count }))
+        .sort((a, b) => b.count - a.count)
+
+      // keep chart readable: top 8 + “Other”
+      const top = rows.slice(0, 8)
+      const rest = rows.slice(8)
+      const otherCount = rest.reduce((sum, r) => sum + r.count, 0)
+      return otherCount ? [...top, { combo: "Other", count: otherCount }] : top
+  }, [sessions])
+
+  const pieData = (configComboData?.length
+  ? configComboData
+  : [{ combo: "No data", count: 1 }]
+)
+
+const totalConfigs = useMemo(
+  () => pieData.reduce((s, d) => s + (d.count ?? 0), 0),
+  [pieData]
+)
+
+const colorFor = (i: number) => PALETTE[i % PALETTE.length]
 
   const incidentByLab = useMemo(() => {
     const map = new Map<string, number>()
@@ -501,6 +559,19 @@ const sessionByDay = useMemo(() => {
     pdf.save(filename)
   }
 
+  const ConfigTooltip = ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null
+    const name = String(payload[0].name ?? payload[0].payload?.combo ?? "")
+    const value = Number(payload[0].value ?? 0)
+    const percent = totalConfigs ? Math.round((value / totalConfigs) * 100) : 0
+    return (
+      <div className="rounded-md border bg-popover px-3 py-2 text-sm shadow-sm">
+        <div className="font-medium">{name}</div>
+        <div>Count: <strong>{value}</strong></div>
+        <div>Percent: <strong>{percent}</strong></div>
+      </div>
+    )
+  }
   const exportSessions = () => exportCSV("session_activity.csv", sessions as any)
   const exportIncidents = () => exportCSV("incident_report.csv", incidents as any)
   const exportBehaviour = () => exportCSV("staff_behaviour.csv", behaviour as any)
@@ -666,6 +737,45 @@ const sessionByDay = useMemo(() => {
                           <Bar dataKey="count" fill={PALETTE[2]} />
                         </BarChart>
                       </ResponsiveContainer>
+                    </ChartBlock>
+
+                    <ChartBlock title="Most used configurations">
+                      <div className="h-80">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              dataKey="count"
+                              nameKey="combo"
+                              innerRadius="45%"
+                              outerRadius="80%"
+                              labelLine={false} // no connector lines
+                              label={false}
+                              isAnimationActive={false}
+                            >
+                              {pieData.map((_, i) => (
+                                <Cell key={i} fill={colorFor(i)} />
+                              ))}
+                            </Pie>
+
+                            {/* Legend colors explicitly match slice colors */}
+                            <Legend
+                              align="right"
+                              verticalAlign="middle"
+                              layout="vertical"
+                              iconType="circle"
+                              payload={pieData.map((d, i) => ({
+                                id: String(d.combo),
+                                type: "circle",
+                                value: String(d.combo),
+                                color: colorFor(i),
+                              })) as any[]}
+                            />
+
+                            <Tooltip content={<ConfigTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
                     </ChartBlock>
 
                     {/* Detailed List (toggle) */}
