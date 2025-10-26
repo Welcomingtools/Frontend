@@ -18,9 +18,10 @@ import {
   Terminal,
   Copy,
   ChevronDown,
-  Trash2 // Added for clear history button
+  Trash2
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { logLabCommand } from "@/lib/activityLogger"
 
 // Lab capacity data with proper typing
 const labCapacities: Record<string, number> = {
@@ -76,22 +77,41 @@ const STORAGE_KEYS = {
   LAST_UPDATED: (labId: string) => `lab-${labId}-last-updated`
 }
 
+// Command category mapping
+const COMMAND_CATEGORIES: Record<string, string> = {
+  powerup: "Power Management",
+  powerdown: "Power Management",
+  reboot: "Power Management",
+  listmachinesup: "Machine Status",
+  listmachinesdown: "Machine Status",
+  armwindows: "Windows Management",
+  disarmwindows: "Windows Management",
+  windowsdown: "Windows Management",
+  armvmusercleanup: "User Management",
+  disarmvmusercleanup: "User Management",
+  armhomes: "Home Directories",
+  disarmhomes: "Home Directories",
+  internetup: "Internet Control",
+  internetdown: "Internet Control",
+  handoutdata: "Data & Reports",
+  reportwindows: "Data & Reports",
+  reportvmuser: "Data & Reports",
+  reportinternet: "Data & Reports",
+}
+
 export default function LabStatusPage() {
   const { id } = useParams()
   const searchParams = useSearchParams()
   
-  // Get the correct lab ID and capacity
   const labId = Array.isArray(id) ? id[0] : id || "106"
   const totalMachines = labCapacities[labId] || 16
   
-  // Check if we have query parameters from the lab overview
   const queryUp = searchParams.get('up')
   const queryDown = searchParams.get('down')
   const queryTotal = searchParams.get('total')
   const sessionId = searchParams.get('session')
   const fromOverview = queryUp !== null && queryDown !== null && queryTotal !== null
   
-  // Determine the correct back URL based on whether there's a session
   const getBackUrl = () => {
     if (sessionId) {
       return `/schedule?session=${sessionId}`
@@ -99,7 +119,6 @@ export default function LabStatusPage() {
     return "/labs"
   }
   
-  // Load initial state from localStorage
   const loadInitialState = () => {
     try {
       const savedResults = localStorage.getItem(STORAGE_KEYS.COMMAND_RESULTS(labId))
@@ -125,23 +144,15 @@ export default function LabStatusPage() {
 
   const initialState = loadInitialState()
   
-  // State for machine status - initialized from localStorage
   const [machinesUp, setMachinesUp] = useState(initialState.machinesUp)
   const [machinesDown, setMachinesDown] = useState(initialState.machinesDown)
   const [lastUpdated, setLastUpdated] = useState(initialState.lastUpdated)
-  
-  // State for command execution - initialized from localStorage
   const [isLoading, setIsLoading] = useState<string | null>(null)
   const [commandResults, setCommandResults] = useState<CommandResult[]>(initialState.commandResults)
   const [error, setError] = useState("")
-  
-  // Session data state
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
-
-  // Ref for auto-scrolling to results
   const resultsRef = useRef<HTMLDivElement>(null)
 
-  // Save command results to localStorage whenever they change
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.COMMAND_RESULTS(labId), JSON.stringify(commandResults))
@@ -150,7 +161,6 @@ export default function LabStatusPage() {
     }
   }, [commandResults, labId])
 
-  // Save machine status to localStorage whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.MACHINE_STATUS(labId), JSON.stringify({
@@ -163,7 +173,6 @@ export default function LabStatusPage() {
     }
   }, [machinesUp, machinesDown, lastUpdated, labId])
 
-  // Auto-scroll to results when new commands are executed
   useEffect(() => {
     if (commandResults.length > 0 && resultsRef.current) {
       resultsRef.current.scrollIntoView({ 
@@ -173,7 +182,6 @@ export default function LabStatusPage() {
     }
   }, [commandResults])
 
-  // Fetch session data when sessionId is available
   useEffect(() => {
     const fetchSessionData = async () => {
       if (!sessionId) return;
@@ -221,9 +229,7 @@ export default function LabStatusPage() {
     fetchSessionData();
   }, [sessionId]);
 
-  // Fetch initial machine status only if not coming from overview and no saved data
   useEffect(() => {
-    // Only fetch if we don't have saved data and we're not coming from overview
     const hasSavedData = localStorage.getItem(STORAGE_KEYS.COMMAND_RESULTS(labId)) !== null
     
     if (!fromOverview && !hasSavedData) {
@@ -262,7 +268,6 @@ export default function LabStatusPage() {
 
       fetchInitialStatus()
     } else if (fromOverview && !hasSavedData) {
-      // Only add the cached data message if we don't have existing saved data
       const result: CommandResult = {
         command: "Using Cached Data",
         success: true,
@@ -275,7 +280,6 @@ export default function LabStatusPage() {
     }
   }, [fromOverview, totalMachines, labId, queryUp, queryDown, queryTotal])
 
-  // Format command output for better display
   const formatOutput = (output: string | string[]) => {
     if (Array.isArray(output)) {
       return output.join('\n')
@@ -283,22 +287,20 @@ export default function LabStatusPage() {
     return output
   }
 
-  // Copy output to clipboard
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
   }
 
-  // Clear command history
   const clearCommandHistory = () => {
     setCommandResults([])
-    // Also clear from localStorage
     localStorage.removeItem(STORAGE_KEYS.COMMAND_RESULTS(labId))
   }
 
-  // Enhanced command execution with better output formatting
   const executeCommand = async (command: string, description: string) => {
     setIsLoading(command)
     setError("")
+
+    const startTime = Date.now()
 
     try {
       const response = await fetch(`${SERVER_BASE_URL}/api/commands/${labId}/${command}`, {
@@ -313,6 +315,8 @@ export default function LabStatusPage() {
       }
 
       const data = await response.json()
+      const endTime = Date.now()
+      const duration = endTime - startTime
       
       let displayOutput = ''
       if (data.success) {
@@ -362,10 +366,29 @@ export default function LabStatusPage() {
 
       setCommandResults(prev => [result, ...prev.slice(0, 14)])
 
+      // Log activity to database
+      await logLabCommand(
+        labId,
+        command,
+        description,
+        COMMAND_CATEGORIES[command] || "Other",
+        data.success,
+        duration,
+        {
+          output: displayOutput,
+          machines: data.machines,
+          welcometoolsCommand: data.welcometoolsCommand,
+          error: data.error,
+        }
+      )
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Failed to execute ${description} for Lab ${labId}: ${errorMessage}`)
       
+      const endTime = Date.now()
+      const duration = endTime - startTime
+
       const result: CommandResult = {
         command: description,
         success: false,
@@ -375,12 +398,24 @@ export default function LabStatusPage() {
         labId: labId
       }
       setCommandResults(prev => [result, ...prev.slice(0, 14)])
+
+      // Log failed command to database
+      await logLabCommand(
+        labId,
+        command,
+        description,
+        COMMAND_CATEGORIES[command] || "Other",
+        false,
+        duration,
+        {
+          error: errorMessage,
+        }
+      )
     } finally {
       setIsLoading(null)
     }
   }
 
-  // Test server connection
   const testConnection = async () => {
     setIsLoading('test')
     setError("")
@@ -405,7 +440,6 @@ export default function LabStatusPage() {
     }
   }
 
-  // Manual refresh function
   const refreshMachineStatus = async () => {
     setIsLoading('refresh')
     setError("")
@@ -482,14 +516,12 @@ export default function LabStatusPage() {
     }
   }
 
-  // Format time for display
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(":")
     const hour = Number.parseInt(hours)
     return `${hour % 12 || 12}${minutes !== "00" ? ":" + minutes : ""} ${hour >= 12 ? "PM" : "AM"}`
   }
 
-  // Format date for display
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString('en-US', { 
@@ -500,7 +532,6 @@ export default function LabStatusPage() {
     })
   }
 
-  // All commands organized by category
   const commandCategories = {
     'Power Management': [
       {
@@ -672,7 +703,6 @@ export default function LabStatusPage() {
           </Alert>
         )}
 
-        {/* Show cache indicator if using data from overview */}
         {fromOverview && (
           <Alert className="mb-4 border-blue-200 bg-blue-50">
             <CheckCircle className="h-4 w-4 text-blue-600" />
@@ -690,7 +720,6 @@ export default function LabStatusPage() {
           </Alert>
         )}
 
-        {/* Session Information */}
         {sessionData && (
           <Card className="mb-4">
             <CardHeader>
@@ -730,7 +759,6 @@ export default function LabStatusPage() {
                 </div>
               </div>
               
-              {/* Session Description */}
               {sessionData.description && (
                 <div className="mt-4 pt-4 border-t">
                   <div className="flex items-center gap-2 mb-2">
@@ -862,7 +890,6 @@ export default function LabStatusPage() {
           </TabsList>
 
           <TabsContent value="commands" className="space-y-4">
-            {/* Lab Commands content */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -886,7 +913,6 @@ export default function LabStatusPage() {
               </CardContent>
             </Card>
 
-            {/* Commands organized by category */}
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
               {Object.entries(commandCategories).map(([category, commands]) => (
                 <Card key={category}>
@@ -927,7 +953,6 @@ export default function LabStatusPage() {
               ))}
             </div>
 
-            {/* Enhanced Command Results Section */}
             {commandResults.length > 0 && (
               <Card ref={resultsRef}>
                 <CardHeader>
@@ -1084,7 +1109,6 @@ export default function LabStatusPage() {
 
           {sessionData && (
             <TabsContent value="status" className="space-y-4">
-              {/* Configuration Details content */}
               <Card>
                 <CardHeader>
                   <CardTitle>Detailed Configuration Status - Lab {labId}</CardTitle>
