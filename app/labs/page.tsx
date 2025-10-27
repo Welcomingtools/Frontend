@@ -802,69 +802,86 @@ const generateMachines = (labId: string, totalMachines: number, onlineMachineIds
   }
 
   const handleCSVUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+  const file = event.target.files?.[0]
+  if (!file) return
 
-    if (!file.name.endsWith('.csv')) {
-      showErrorToast("Invalid File Type", "Please upload a CSV file")
+  // File type validation
+  if (!file.name.endsWith('.csv')) {
+    showErrorToast("Invalid File Type", "Please upload a CSV file")
+    return
+  }
+
+  // File size validation - 2MB limit
+  const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB in bytes
+  if (file.size > MAX_FILE_SIZE) {
+    showErrorToast(
+      "File Too Large", 
+      `File size (${(file.size / (1024 * 1024)).toFixed(2)}MB) exceeds the 2MB limit. Please upload a smaller file.`
+    )
+    return
+  }
+
+  // Optional: Check if file is empty
+  if (file.size === 0) {
+    showErrorToast("Empty File", "The selected CSV file is empty")
+    return
+  }
+
+  setCsvFile(file)
+  
+  try {
+    const text = await file.text()
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+    
+    const students = lines.map(line => {
+      const columns = line.split(',').map(col => col.trim().replace(/"/g, ''))
+      return columns[0]
+    }).filter(student => {
+      if (!student || student.length === 0) return false
+      
+      const lowerStudent = student.toLowerCase()
+      const commonHeaders = [
+        'student', 'student number', 'student_number', 'studentnumber', 
+        'id', 'number', 'student id', 'student_id', 'studentid',
+        'reg', 'registration', 'reg_no', 'regno', 'registration_number',
+        'matric', 'matriculation', 'matric_no', 'matricno'
+      ]
+      if (commonHeaders.some(header => lowerStudent.includes(header))) return false
+      
+      if (!/\d/.test(student)) return false
+      
+      const letterCount = (student.match(/[a-zA-Z]/g) || []).length
+      const totalLength = student.length
+      if (letterCount > totalLength * 0.5) return false
+      
+      return true
+    })
+
+    if (students.length === 0) {
+      showErrorToast(
+        "No Valid Student Numbers Found", 
+        "Make sure student numbers are in the first column and contain numeric characters. Headers will be automatically skipped."
+      )
       return
     }
 
-    setCsvFile(file)
+    const sortedStudents = students.sort((a, b) => {
+      const aNum = a.match(/\d+/)?.[0] || a
+      const bNum = b.match(/\d+/)?.[0] || b
+      return aNum.localeCompare(bNum, undefined, { numeric: true })
+    })
     
-    try {
-      const text = await file.text()
-      const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
-      
-      const students = lines.map(line => {
-        const columns = line.split(',').map(col => col.trim().replace(/"/g, ''))
-        return columns[0]
-      }).filter(student => {
-        if (!student || student.length === 0) return false
-        
-        const lowerStudent = student.toLowerCase()
-        const commonHeaders = [
-          'student', 'student number', 'student_number', 'studentnumber', 
-          'id', 'number', 'student id', 'student_id', 'studentid',
-          'reg', 'registration', 'reg_no', 'regno', 'registration_number',
-          'matric', 'matriculation', 'matric_no', 'matricno'
-        ]
-        if (commonHeaders.some(header => lowerStudent.includes(header))) return false
-        
-        if (!/\d/.test(student)) return false
-        
-        const letterCount = (student.match(/[a-zA-Z]/g) || []).length
-        const totalLength = student.length
-        if (letterCount > totalLength * 0.5) return false
-        
-        return true
-      })
-
-      if (students.length === 0) {
-        showErrorToast(
-          "No Valid Student Numbers Found", 
-          "Make sure student numbers are in the first column and contain numeric characters. Headers will be automatically skipped."
-        )
-        return
-      }
-
-      const sortedStudents = students.sort((a, b) => {
-        const aNum = a.match(/\d+/)?.[0] || a
-        const bNum = b.match(/\d+/)?.[0] || b
-        return aNum.localeCompare(bNum, undefined, { numeric: true })
-      })
-      
-      setImportedStudents(sortedStudents)
-      setStudentNumbers(sortedStudents.join('\n'))
-      
-      showSuccessToast(
-        "CSV Imported Successfully", 
-        `${sortedStudents.length} student numbers imported from ${file.name}`
-      )
-    } catch (error) {
-      showErrorToast("Import Failed", "Error reading CSV file. Please check file format.")
-    }
+    setImportedStudents(sortedStudents)
+    setStudentNumbers(sortedStudents.join('\n'))
+    
+    showSuccessToast(
+      "CSV Imported Successfully", 
+      `${sortedStudents.length} student numbers imported from ${file.name} (${(file.size / 1024).toFixed(1)}KB)`
+    )
+  } catch (error) {
+    showErrorToast("Import Failed", "Error reading CSV file. Please check file format.")
   }
+}
 
   const getCurrentStudentList = (): string[] => {
     if (inputMethod === "csv" && importedStudents.length > 0) {

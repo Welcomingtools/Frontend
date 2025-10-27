@@ -202,9 +202,7 @@ export default function Dashboard() {
                   <div>
                     <h3 className="font-semibold flex items-center gap-2">
                       Activity Log
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        Admin
-                      </span>
+                      
                     </h3>
                     <p className="text-sm text-muted-foreground">View system activity and audit logs</p>
                   </div>
